@@ -5,6 +5,7 @@ import logging
 import asyncio
 import json
 import os
+from app.keyboards import get_main_menu
 from telegram import Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from typing import List, Dict
