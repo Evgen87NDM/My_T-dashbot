@@ -1375,23 +1375,24 @@ class InvestmentTelegramBot:
         self.application.add_handler(CommandHandler("auto_trade_all", self.auto_trade_all_command))
         self.application.add_handler(CommandHandler("commission", self.commission_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
+        self.application.add_handler(CommandHandler("commission", self.commission_command))
+        self.application.add_handler(CommandHandler("help", self.help_command))
         
         # --- Обработчики для кнопок главного меню ---
+        # Кнопка "⚙️ Настройки"
+        self.application.add_handler(
+            MessageHandler(filters.Regex("^⚙️ Настройки$"), self.show_settings)
+        )
 
-# Кнопка "⚙️ Настройки"
-self.application.add_handler(
-    MessageHandler(filters.Regex("^⚙️ Настройки$"), self.show_settings)
-)
+        # Кнопка "📊 Мой портфель"
+        self.application.add_handler(
+            MessageHandler(filters.Regex("^📊 Мой портфель$"), self.portfolio_command)
+        )
 
-# Кнопка "📊 Мой портфель" (пока просто заглушка)
-self.application.add_handler(
-    MessageHandler(filters.Regex("^📊 Мой портфель$"), self.portfolio_command)
-)
-
-# Кнопка "💰 Дивиденды" (пока просто заглушка)
-self.application.add_handler(
-    MessageHandler(filters.Regex("^💰 Дивиденды$"), self.show_dividends)
-)
+        # Кнопка "💰 Дивиденды"
+        self.application.add_handler(
+            MessageHandler(filters.Regex("^💰 Дивиденды$"), self.show_dividends)
+        )
 
         # Add callback handlers - UPDATED PATTERNS
         self.application.add_handler(CallbackQueryHandler(
@@ -1405,6 +1406,31 @@ self.application.add_handler(
         ))
         
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+
+        # Add callback handlers - UPDATED PATTERNS
+        self.application.add_handler(CallbackQueryHandler(
+            self.handle_account_selection, 
+            pattern="^select_and_trade"
+        ))
+        
+        self.application.add_handler(CallbackQueryHandler(
+            self.handle_confirmation_callback, 
+            pattern="^(confirm|cancel|show_commissions)"
+        ))
+        
+        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+        
+    async def show_settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик кнопки 'Настройки'"""
+        await update.message.reply_text(
+            "⚙️ **Настройки бота**\n\nВыберите, что хотите изменить:",
+            reply_markup=get_settings_menu(),
+            parse_mode="Markdown"
+        )
+
+    async def show_dividends(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик кнопки 'Дивиденды'"""
+        await update.message.reply_text("⏳ Считаю будущие дивиденды и купоны... (В разработке)")
 
     def run(self):
         """Run the bot"""
