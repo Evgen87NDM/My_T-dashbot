@@ -1,8 +1,6 @@
---index-url https://mirror.yandex.ru/pypi/
---trusted-host mirror.yandex.ru
 aiogram==3.10.0
 aiohttp==3.9.5
-tinkoff-investments==0.2.0b117
+https://github.com/Invest-SDK/invest-python/raw/refs/heads/master/t_tech_investments-1.51.0-py3-none-any.whl
 python-dotenv==1.0.0
 pandas==2.2.0
 python-dateutil==2.8.2
@@ -13,5 +11,4 @@ sqlalchemy==2.0.23
 alembic==1.12.1
 pydantic==2.5.0
 pydantic-settings==2.1.0
-deepseek-api==1.0.0
-asyncio==3.4.3
+openai
