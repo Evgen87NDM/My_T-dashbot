@@ -1375,26 +1375,21 @@ class InvestmentTelegramBot:
         self.application.add_handler(CommandHandler("auto_trade_all", self.auto_trade_all_command))
         self.application.add_handler(CommandHandler("commission", self.commission_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
-        self.application.add_handler(CommandHandler("commission", self.commission_command))
-        self.application.add_handler(CommandHandler("help", self.help_command))
         
         # --- Обработчики для кнопок главного меню ---
-        # Кнопка "⚙️ Настройки"
         self.application.add_handler(
             MessageHandler(filters.Regex("^⚙️ Настройки$"), self.show_settings)
         )
 
-        # Кнопка "📊 Мой портфель"
         self.application.add_handler(
             MessageHandler(filters.Regex("^📊 Мой портфель$"), self.portfolio_command)
         )
 
-        # Кнопка "💰 Дивиденды"
         self.application.add_handler(
             MessageHandler(filters.Regex("^💰 Дивиденды$"), self.show_dividends)
         )
 
-        # Add callback handlers - UPDATED PATTERNS
+        # Add callback handlers
         self.application.add_handler(CallbackQueryHandler(
             self.handle_account_selection, 
             pattern="^select_and_trade"
@@ -1405,19 +1400,7 @@ class InvestmentTelegramBot:
             pattern="^(confirm|cancel|show_commissions)"
         ))
         
-        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
-
-        # Add callback handlers - UPDATED PATTERNS
-        self.application.add_handler(CallbackQueryHandler(
-            self.handle_account_selection, 
-            pattern="^select_and_trade"
-        ))
-        
-        self.application.add_handler(CallbackQueryHandler(
-            self.handle_confirmation_callback, 
-            pattern="^(confirm|cancel|show_commissions)"
-        ))
-        
+        # Этот обработчик должен быть САМЫМ ПОСЛЕДНИМ (он ловит весь остальной текст)
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         
     async def show_settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
