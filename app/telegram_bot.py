@@ -5,7 +5,7 @@ import logging
 import asyncio
 import json
 import os
-from app.keyboards import get_main_menu
+from app.keyboards import get_main_menu, get_settings_menu
 from telegram import Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from typing import List, Dict
@@ -1376,6 +1376,23 @@ class InvestmentTelegramBot:
         self.application.add_handler(CommandHandler("commission", self.commission_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
         
+        # --- Обработчики для кнопок главного меню ---
+
+# Кнопка "⚙️ Настройки"
+self.application.add_handler(
+    MessageHandler(filters.Regex("^⚙️ Настройки$"), self.show_settings)
+)
+
+# Кнопка "📊 Мой портфель" (пока просто заглушка)
+self.application.add_handler(
+    MessageHandler(filters.Regex("^📊 Мой портфель$"), self.portfolio_command)
+)
+
+# Кнопка "💰 Дивиденды" (пока просто заглушка)
+self.application.add_handler(
+    MessageHandler(filters.Regex("^💰 Дивиденды$"), self.show_dividends)
+)
+
         # Add callback handlers - UPDATED PATTERNS
         self.application.add_handler(CallbackQueryHandler(
             self.handle_account_selection, 
