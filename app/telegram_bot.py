@@ -161,7 +161,7 @@ class InvestmentTelegramBot:
 💬 Задавайте вопросы про инвестиции!
         """
         
-        await update.message.reply_text(welcome_text)
+        await update.message.reply_text(welcome_text, reply_markup=get_main_menu())
 
     async def portfolio_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /portfolio command - все счета"""
