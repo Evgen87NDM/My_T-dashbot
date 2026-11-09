@@ -533,41 +533,22 @@ class InvestmentTelegramBot:
             await update.message.reply_text(f"❌ Ошибка загрузки счетов. Проверьте токен.")
 
     async def handle_account_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle account selection callbacks with auto-trade"""
+        """Handle account selection callbacks and save to DB"""
         query = update.callback_query
         await query.answer()
         
-        user_id = str(query.from_user.id)
         data = query.data
-        
-        logger.info(f"Account selection callback: user_id={user_id}, data={data}")
+        user_id = query.from_user.id
         
         try:
-            if data == "select_and_trade_all":
-                self.selected_accounts[user_id] = "all"
-                self._save_selected_accounts()
-                logger.info(f"User {user_id} selected ALL accounts")
-                await query.edit_message_text("✅ Выбраны ВСЕ счета для управления\n\n🚀 Запускаю AI анализ...")
-                # Automatically start auto_trade
-                await self._execute_auto_trade_from_callback(query, "all", "all")
-                return
-            
-            if data.startswith("select_and_trade_"):
-                account_id = data.replace("select_and_trade_", "")
-                self.selected_accounts[user_id] = account_id
-                self._save_selected_accounts()
+            if data.startswith("select_acc_"):
+                account_id = data.replace("select_acc_", "")
                 
-                # Get account name from stored mapping
-                account_name = self.account_names.get(account_id, f"Счет {account_id[-4:]}")
+                # Сохраняем счет в базу данных!
+                db.save_user_data(user_id, selected_account=account_id)
                 
-                logger.info(f"User {user_id} selected account: {account_name} ({account_id})")
-                await query.edit_message_text(f"✅ Выбран счет: {account_name}\n\n🚀 Запускаю AI анализ...")
-                # Automatically start auto_trade
-                await self._execute_auto_trade_from_callback(query, account_id, "selected")
+                await query.edit_message_text(f"✅ Счет выбран и сохранен!\n\nТеперь я буду анализировать именно его.")
                 return
-            
-            # If we get here, something went wrong
-            await query.edit_message_text("❌ Ошибка выбора счета")
             
         except Exception as e:
             logger.error(f"Error in account selection: {e}")
@@ -1360,7 +1341,7 @@ class InvestmentTelegramBot:
         # Add callback handlers
         self.application.add_handler(CallbackQueryHandler(
             self.handle_account_selection, 
-            pattern="^select_and_trade"
+            pattern="^select_acc_"
         ))
         
         self.application.add_handler(CallbackQueryHandler(
