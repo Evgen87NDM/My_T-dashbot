@@ -1337,7 +1337,20 @@ class InvestmentTelegramBot:
 
     def setup_handlers(self):
         """Setup command handlers with account selection"""
-        self.application.add_handler(CommandHandler("start", self.start_command))
+                # Настройка пошагового диалога (Onboarding)
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler("start", self.start_command)],
+            states={
+                "ASK_NAME": [MessageHandler(filters.TEXT & ~filters.COMMAND, self.ask_name)],
+                "ASK_TOKEN": [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.ask_timezone),
+                    CallbackQueryHandler(self.ask_timezone, pattern="^skip_token$")
+                ],
+                "ASK_CITY": [CallbackQueryHandler(self.finish_onboarding, pattern="^tz_")]
+            },
+            fallbacks=[CommandHandler("start", self.start_command)]
+        )
+        self.application.add_handler(conv_handler)
         self.application.add_handler(CommandHandler("portfolio", self.portfolio_command))
         self.application.add_handler(CommandHandler("accounts", self.accounts_command))
         self.application.add_handler(CommandHandler("health", self.health_command))
