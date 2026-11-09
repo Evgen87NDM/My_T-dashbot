@@ -11,7 +11,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from typing import List, Dict
 from app.database import db
 from telegram.ext import ConversationHandler
-
+from t_tech.invest import Client
 from app.loader import get_tinkoff_client, get_tinkoff_client_manager
 from app.health_monitor import HealthMonitor
 from app.ai_manager import get_ai_manager
@@ -133,29 +133,44 @@ class InvestmentTelegramBot:
         await update.message.reply_text(welcome_text)
         return "ASK_NAME"
 
-    async def portfolio_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /portfolio command - все счета"""
+    async def accounts_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /accounts command with account selection from DB"""
         user = update.effective_user
-        logger.info(f"PORTFOLIO from {user.first_name}")
+        user_data = db.get_user(user.id)
+        token = user_data.get('tinkoff_token') if user_data else None
+        
+        if not token:
+            await update.message.reply_text("❌ У вас не подключен токен. Нажмите ⚙️ Настройки.")
+            return
+
+        await update.message.reply_text("📋 Загружаю список ваших счетов...")
         
         try:
-            await update.message.reply_text("📊 Загружаю данные портфеля по всем счетам...")
-            
-            portfolio_data = await self._get_all_accounts_portfolio_data()
-            if not portfolio_data:
-                await update.message.reply_text("❌ Не удалось загрузить данные портфеля")
-                return
-            
-            response_parts = self._format_portfolio_response(portfolio_data)
-            
-            # Отправляем все части сообщения
-            for part in response_parts:
-                await update.message.reply_text(part)
-                await asyncio.sleep(0.3)  # Небольшая задержка между сообщениями
-            
+            with Client(token) as client:
+                accounts_response = client.users.get_accounts()
+                
+                if not accounts_response or not accounts_response.accounts:
+                    await update.message.reply_text("❌ Не найдено счетов")
+                    return
+                
+                keyboard = []
+                for i, account in enumerate(accounts_response.accounts, 1):
+                    account_name = getattr(account, 'name', 'Счет')
+                    account_id = getattr(account, 'id', 'N/A')
+                    
+                    keyboard.append([
+                        InlineKeyboardButton(
+                            f"🎯 {account_name}", 
+                            callback_data=f"select_acc_{account_id}"
+                        )
+                    ])
+                
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text("Выберите счет для анализа:", reply_markup=reply_markup)
+                
         except Exception as e:
-            logger.error(f"Portfolio error: {e}")
-            await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+            logger.error(f"Accounts error: {e}")
+            await update.message.reply_text(f"❌ Ошибка загрузки счетов. Проверьте токен.")
 
     async def _get_all_accounts_portfolio_data(self):
         """Get portfolio data from all accounts"""
@@ -479,73 +494,43 @@ class InvestmentTelegramBot:
         return parts
 
     async def accounts_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /accounts command with account selection"""
+        """Handle /accounts command with account selection from DB"""
+        user = update.effective_user
+        user_data = db.get_user(user.id)
+        token = user_data.get('tinkoff_token') if user_data else None
+        
+        if not token:
+            await update.message.reply_text("❌ У вас не подключен токен. Нажмите ⚙️ Настройки.")
+            return
+
+        await update.message.reply_text("📋 Загружаю список ваших счетов...")
+        
         try:
-            await update.message.reply_text("📋 Загружаю список счетов...")
-            
-            def get_accounts_operation(client):
-                return client.users.get_accounts()
-            
-            accounts_response = await self._execute_tinkoff_operation(get_accounts_operation)
-            
-            if not accounts_response or not accounts_response.accounts:
-                await update.message.reply_text("❌ Не найдено счетов")
-                return
-            
-            user_id = str(update.effective_user.id)
-            mode, token_info = self._get_operation_mode_info()
-            
-            response = f"📋 ВАШИ СЧЕТА\n\n{mode}\n{token_info}\n\n"
-            
-            keyboard = []
-            for i, account in enumerate(accounts_response.accounts, 1):
-                account_name = getattr(account, 'name', 'Счет')
-                account_id = getattr(account, 'id', 'N/A')
-                account_status = getattr(account, 'status', 'Неизвестно')
-                account_type = getattr(account, 'type', 'Неизвестно')
+            with Client(token) as client:
+                accounts_response = client.users.get_accounts()
                 
-                response += f"{i}. {account_name}\n"
-                response += f"   ID: {account_id}\n"
-                response += f"   Статус: {account_status}\n"
-                response += f"   Тип: {account_type}\n\n"
+                if not accounts_response or not accounts_response.accounts:
+                    await update.message.reply_text("❌ Не найдено счетов")
+                    return
                 
-                # Store account name for later use
-                self.account_names[account_id] = account_name
+                keyboard = []
+                for i, account in enumerate(accounts_response.accounts, 1):
+                    account_name = getattr(account, 'name', 'Счет')
+                    account_id = getattr(account, 'id', 'N/A')
+                    
+                    keyboard.append([
+                        InlineKeyboardButton(
+                            f"🎯 {account_name}", 
+                            callback_data=f"select_acc_{account_id}"
+                        )
+                    ])
                 
-                # Add button for account selection with auto-trade
-                keyboard.append([
-                    InlineKeyboardButton(
-                        f"🎯 {account_name} → AI", 
-                        callback_data=f"select_and_trade_{account_id}"
-                    )
-                ])
-            
-            # Add button for all accounts with auto-trade
-            keyboard.append([
-                InlineKeyboardButton(
-                    "📊 ВСЕ СЧЕТА → AI", 
-                    callback_data="select_and_trade_all"
-                )
-            ])
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            # Show current selection
-            current_account = self.selected_accounts.get(user_id)
-            if current_account:
-                if current_account == "all":
-                    response += "✅ Сейчас выбраны: ВСЕ СЧЕТА"
-                else:
-                    account_name = self.account_names.get(current_account, current_account)
-                    response += f"✅ Сейчас выбран: {account_name}"
-            else:
-                response += "🎯 Выберите счет для автоматического запуска AI управления:"
-            
-            await update.message.reply_text(response, reply_markup=reply_markup)
-            
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text("Выберите счет для анализа:", reply_markup=reply_markup)
+                
         except Exception as e:
             logger.error(f"Accounts error: {e}")
-            await update.message.reply_text(f"❌ Ошибка загрузки счетов: {str(e)}")
+            await update.message.reply_text(f"❌ Ошибка загрузки счетов. Проверьте токен.")
 
     async def handle_account_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle account selection callbacks with auto-trade"""
