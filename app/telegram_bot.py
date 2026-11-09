@@ -133,6 +133,62 @@ class InvestmentTelegramBot:
         await update.message.reply_text(welcome_text)
         return "ASK_NAME"
 
+    async def portfolio_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /portfolio command - анализ портфеля пользователя"""
+        user = update.effective_user
+        user_data = db.get_user(user.id)
+        
+        # Проверяем, есть ли у пользователя токен
+        token = user_data.get('tinkoff_token') if user_data else None
+        if not token:
+            await update.message.reply_text(
+                "❌ У вас не подключен токен Т-Инвестиций.\n"
+                "Чтобы я мог показать портфель, нажмите ⚙️ Настройки и подключите токен."
+            )
+            return
+
+        await update.message.reply_text("📊 Загружаю данные вашего портфеля...")
+        
+        try:
+            # Создаем клиента с токеном конкретного пользователя
+            with Client(token) as client:
+                accounts = client.users.get_accounts()
+                if not accounts.accounts:
+                    await update.message.reply_text("❌ У вас нет открытых счетов.")
+                    return
+
+                # Берем первый счет (в будущем сделаем выбор)
+                account_id = accounts.accounts[0].id
+                
+                # Получаем портфель
+                portfolio = client.operations.get_portfolio(account_id=account_id)
+                
+                total_value = 0
+                positions_text = ""
+                
+                if portfolio.positions:
+                    for pos in portfolio.positions:
+                        qty = pos.quantity.units
+                        if qty == 0: continue
+                        
+                        price = pos.current_price.units + pos.current_price.nano / 1e9
+                        value = qty * price
+                        total_value += value
+                        
+                        ticker = pos.ticker if hasattr(pos, 'ticker') else "N/A"
+                        positions_text += f"• {ticker}: {qty} шт. ({value:,.0f} ₽)\n"
+
+                response = (
+                    f"📈 <b>Ваш портфель</b>\n\n"
+                    f"💰 Общая стоимость: <b>{total_value:,.2f} ₽</b>\n\n"
+                    f"{positions_text}"
+                )
+                await update.message.reply_text(response, parse_mode="HTML")
+
+        except Exception as e:
+            logger.error(f"Portfolio error: {e}")
+            await update.message.reply_text(f"❌ Ошибка при загрузке портфеля. Возможно, токен неверный.")
+
     async def accounts_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /accounts command with account selection from DB"""
         user = update.effective_user
@@ -492,45 +548,6 @@ class InvestmentTelegramBot:
             parts.append(final_summary)
         
         return parts
-
-    async def accounts_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /accounts command with account selection from DB"""
-        user = update.effective_user
-        user_data = db.get_user(user.id)
-        token = user_data.get('tinkoff_token') if user_data else None
-        
-        if not token:
-            await update.message.reply_text("❌ У вас не подключен токен. Нажмите ⚙️ Настройки.")
-            return
-
-        await update.message.reply_text("📋 Загружаю список ваших счетов...")
-        
-        try:
-            with Client(token) as client:
-                accounts_response = client.users.get_accounts()
-                
-                if not accounts_response or not accounts_response.accounts:
-                    await update.message.reply_text("❌ Не найдено счетов")
-                    return
-                
-                keyboard = []
-                for i, account in enumerate(accounts_response.accounts, 1):
-                    account_name = getattr(account, 'name', 'Счет')
-                    account_id = getattr(account, 'id', 'N/A')
-                    
-                    keyboard.append([
-                        InlineKeyboardButton(
-                            f"🎯 {account_name}", 
-                            callback_data=f"select_acc_{account_id}"
-                        )
-                    ])
-                
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await update.message.reply_text("Выберите счет для анализа:", reply_markup=reply_markup)
-                
-        except Exception as e:
-            logger.error(f"Accounts error: {e}")
-            await update.message.reply_text(f"❌ Ошибка загрузки счетов. Проверьте токен.")
 
     async def handle_account_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle account selection callbacks and save to DB"""
@@ -1170,7 +1187,7 @@ class InvestmentTelegramBot:
             
             # Execute via Tinkoff API
             def execute_order(client):
-                from tinkoff.invest import OrderDirection, OrderType
+                from t_tech.invest import OrderDirection, OrderType
                 
                 direction = (OrderDirection.ORDER_DIRECTION_BUY 
                            if action['action'] == 'BUY' 
