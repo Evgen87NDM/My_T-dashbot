@@ -1337,7 +1337,7 @@ class InvestmentTelegramBot:
 
     def setup_handlers(self):
         """Setup command handlers with account selection"""
-                # Настройка пошагового диалога (Onboarding)
+        # Настройка пошагового диалога (Onboarding)
         conv_handler = ConversationHandler(
             entry_points=[CommandHandler("start", self.start_command)],
             states={
