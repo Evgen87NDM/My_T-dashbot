@@ -108,62 +108,30 @@ class InvestmentTelegramBot:
             logger.warning(f"⚠️ Could not update bot commands: {e}")
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /start command with mode and tariff info"""
         user = update.effective_user
-        logger.info(f"START from {user.first_name}")
+        user_data = db.get_user(user.id)
         
-        mode, token_info = self._get_operation_mode_info()
-        ai_status = "✅ ДОСТУПЕН" if self.ai_manager else "❌ НЕДОСТУПЕН"
-        trading_mode = "🤖 АВТОМАТИЧЕСКИЙ" if settings.AUTO_TRADING_MODE else "👤 С ПОДТВЕРЖДЕНИЕМ"
-        
-        # Get tariff info automatically
-        tariff_info = self.tariff_manager.get_tariff_info()
-        tariff_name = tariff_info['name']
-        commission_rates = tariff_info['commission_rates']
-        
-        # Get current account selection
-        user_id = str(user.id)
-        current_selection = self.selected_accounts.get(user_id)
-        selection_info = ""
-        if current_selection:
-            if current_selection == "all":
-                selection_info = "✅ Выбраны: ВСЕ СЧЕТА"
-            else:
-                account_name = self.account_names.get(current_selection, f"Счет {current_selection[-4:]}")
-                selection_info = f"✅ Выбран: {account_name}"
-        else:
-            selection_info = "⚠️ Счет не выбран. Используйте /accounts"
-        
-        welcome_text = f"""
-🤖 Привет, {user.first_name}!
+        # Если пользователь уже настроен (есть токен), показываем меню
+        if user_data and user_data.get('tinkoff_token'):
+            name = user_data.get('user_name') or user.first_name
+            await update.message.reply_text(
+                f"С возвращением, {name}! Рад тебя видеть.\nВыбери действие в меню:",
+                reply_markup=get_main_menu()
+            )
+            return ConversationHandler.END
 
-Я - ваш инвестиционный советник с AI управлением.
-
-📊 РЕЖИМ РАБОТЫ: {mode}
-💡 {token_info}
-🤖 AI АССИСТЕНТ: {ai_status}
-🎯 РЕЖИМ ТОРГОВЛИ: {trading_mode}
-
-{selection_info}
-
-💰 **АВТОМАТИЧЕСКИ ОПРЕДЕЛЕННЫЙ ТАРИФ**: {tariff_name}
-📈 Комиссии: покупка {commission_rates['buy']}%, продажа {commission_rates['sell']}%
-
-🎯 **КОМАНДЫ УПРАВЛЕНИЯ ПОРТФЕЛЕМ**:
-/auto_trade - AI управление выбранным счетом
-/auto_trade_all - AI управление всеми счетами
-/accounts - Выбор счета для управления
-
-📋 **ОСНОВНЫЕ КОМАНДЫ**:
-/portfolio - Анализ портфеля (все счета)
-/health - Статус системы
-/commission - Информация о тарифе
-/help - Помощь
-
-💬 Задавайте вопросы про инвестиции!
-        """
-        
-        await update.message.reply_text(welcome_text, reply_markup=get_main_menu())
+        # Если новый — начинаем знакомство
+        welcome_text = (
+            f"👋 Привет, {user.first_name}!\n\n"
+            "Я — твой личный AI-ассистент по инвестициям.\n"
+            "Что я умею:\n"
+            "📊 Анализировать твой портфель простым языком\n"
+            "💰 Следить за дивидендами и купонами\n"
+            "📅 Присылать утренний дайджест с новостями\n\n"
+            "Давай познакомимся. Как мне к тебе обращаться? (Напиши свое имя):"
+        )
+        await update.message.reply_text(welcome_text)
+        return "ASK_NAME"
 
     async def portfolio_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /portfolio command - все счета"""
