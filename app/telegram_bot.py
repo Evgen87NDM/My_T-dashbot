@@ -1384,6 +1384,61 @@ class InvestmentTelegramBot:
     async def show_dividends(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик кнопки 'Дивиденды'"""
         await update.message.reply_text("⏳ Считаю будущие дивиденды и купоны... (В разработке)")
+        
+    async def ask_name(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_name = update.message.text
+        context.user_data['temp_name'] = user_name
+        
+        text = (
+            f"Очень приятно, {user_name}! 🤝\n\n"
+            "Теперь отправь мне свой API-токен от Т-Инвестиций (создай его с правами «Только для чтения»).\n\n"
+            "Или нажми кнопку ниже, чтобы пропустить этот шаг (тогда я буду присылать только общие новости рынка)."
+        )
+        keyboard = [[InlineKeyboardButton("⏩ Пропустить", callback_data="skip_token")]]
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return "ASK_TOKEN"
+
+    async def ask_timezone(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.callback_query:
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text("Хорошо, пропускаем подключение портфеля.")
+            token = None
+            message = update.callback_query.message
+        else:
+            token = update.message.text
+            await update.message.reply_text("✅ Токен принят! Проверю его позже.")
+            message = update.message
+        
+        context.user_data['temp_token'] = token
+        
+        text = "Остался последний шаг! Выбери свой город, чтобы дайджест приходил вовремя:"
+        keyboard = [
+            [InlineKeyboardButton("Москва", callback_data="tz_Europe/Moscow")],
+            [InlineKeyboardButton("Екатеринбург", callback_data="tz_Asia/Yekaterinburg")],
+            [InlineKeyboardButton("Новосибирск", callback_data="tz_Asia/Novosibirsk")],
+            [InlineKeyboardButton("Владивосток", callback_data="tz_Asia/Vladivostok")]
+        ]
+        await message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return "ASK_CITY"
+
+    async def finish_onboarding(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+        
+        timezone = query.data.replace("tz_", "")
+        user_id = query.from_user.id
+        name = context.user_data.get('temp_name', query.from_user.first_name)
+        token = context.user_data.get('temp_token')
+        
+        db.save_user_data(user_id, user_name=name, tinkoff_token=token, timezone=timezone)
+        
+        await query.message.reply_text(
+            f"🎉 Отлично, {name}! Настройка завершена.\n"
+            "Теперь я буду присылать тебе дайджест каждое утро.\n\n"
+            "Используй кнопки внизу, чтобы управлять ботом:",
+            reply_markup=get_main_menu()
+        )
+        return ConversationHandler.END
 
     def run(self):
         """Run the bot"""
