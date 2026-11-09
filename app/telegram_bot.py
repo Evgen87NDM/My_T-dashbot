@@ -9,6 +9,8 @@ from app.keyboards import get_main_menu, get_settings_menu
 from telegram import Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from typing import List, Dict
+from app.database import db
+from telegram.ext import ConversationHandler
 
 from app.loader import get_tinkoff_client, get_tinkoff_client_manager
 from app.health_monitor import HealthMonitor
