@@ -1463,12 +1463,12 @@ class InvestmentTelegramBot:
         self.setup_handlers()
         
         # Setup bot commands menu асинхронно
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self._setup_bot_commands())
-        except Exception as e:
-            logger.warning(f"Could not setup bot commands: {e}")
+       # try:
+       #     loop = asyncio.new_event_loop()
+       #     asyncio.set_event_loop(loop)
+       #     loop.run_until_complete(self._setup_bot_commands())
+       # except Exception as e:
+       #     logger.warning(f"Could not setup bot commands: {e}")
         
         mode, token_info = self._get_operation_mode_info()
         ai_status = "AVAILABLE" if self.ai_manager else "UNAVAILABLE"
