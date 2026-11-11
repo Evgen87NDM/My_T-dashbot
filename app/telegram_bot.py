@@ -134,21 +134,16 @@ class InvestmentTelegramBot:
         )
 
     async def _setup_bot_commands(self):
-        """Setup bot commands menu in Telegram"""
+        """Убираем кнопку меню и список команд"""
         try:
-            commands = [
-                BotCommand("start", "Начать работу (показывает режим)"),
-                BotCommand("portfolio", "Анализ портфеля (все счета)"),
-                BotCommand("accounts", "Список счетов и выбор"),
-                BotCommand("health", "Статус системы"),
-                BotCommand("auto_trade", "AI управление выбранным счетом"),
-                BotCommand("auto_trade_all", "AI управление всеми счетами"),
-                BotCommand("commission", "Информация о тарифе и комиссиях"),
-                BotCommand("help", "Помощь по командам"),
-            ]
+            # Устанавливаем ПУСТОЙ список команд
+            await self.application.bot.set_my_commands([])
             
-            await self.application.bot.set_my_commands(commands)
-            logger.info("✅ Bot commands menu updated")
+            # Скрываем кнопку "Меню" (ставим стандартную пустую)
+            from telegram import MenuButtonDefault
+            await self.application.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
+            
+            logger.info("✅ Кнопка 'Меню' и команды скрыты")
         except Exception as e:
             logger.warning(f"⚠️ Could not update bot commands: {e}")
 
@@ -1537,7 +1532,8 @@ class InvestmentTelegramBot:
         
         # В будущем здесь будет парсинг новостей по тикерам из портфеля
         digest_text = (
-            f"📰 <b>Утренняя сводка для {name}</b>\n\n"
+            f"📰 <b>Привет, {name}</b>\n\n"
+            f"Сводка актуальных новостей на сегодня:\n\n"
             f"🇷🇺 <b>Рынок РФ:</b> Индекс Мосбиржи показывает рост на фоне новостей.\n"
             f"💵 <b>Курсы валют:</b> USD 82.75 (+0.75%), EUR 92.39 (+0.22%).\n"
             f"🛢 <b>Нефть:</b> Brent $91.62 (-1.03%).\n\n"
@@ -1599,13 +1595,13 @@ class InvestmentTelegramBot:
         self.application = Application.builder().token(self.token).build()
         self.setup_handlers()
         
-        # Setup bot commands menu асинхронно
-       # try:
-       #     loop = asyncio.new_event_loop()
-       #     asyncio.set_event_loop(loop)
-       #     loop.run_until_complete(self._setup_bot_commands())
-       # except Exception as e:
-       #     logger.warning(f"Could not setup bot commands: {e}")
+            # Setup bot commands menu асинхронно
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self._setup_bot_commands())
+        except Exception as e:
+            logger.warning(f"Could not setup bot commands: {e}")
         
         mode, token_info = self._get_operation_mode_info()
         ai_status = "AVAILABLE" if self.ai_manager else "UNAVAILABLE"
@@ -1635,10 +1631,9 @@ class InvestmentTelegramBot:
         print("   /help - помощь")
         print("⏹️  Ctrl+C для остановки")
         print("-" * 60)
-        
+
         # Простой запуск без сложной логики event loop
         self.application.run_polling(drop_pending_updates=True)
-
 
 if __name__ == "__main__":
     logging.basicConfig(
