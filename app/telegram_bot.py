@@ -1380,7 +1380,7 @@ class InvestmentTelegramBot:
         """Setup command handlers with account selection"""
         # Настройка пошагового диалога (Onboarding)
         conv_handler = ConversationHandler(
-            entry_points=[CommandHandler("start", self.start_command)],
+            entry_points=[CommandHandler("start", self.start_command), CallbackQueryHandler(self.change_token_start, pattern="^change_token$")],
             states={
                 "ASK_TOKEN": [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.ask_token),
@@ -1411,7 +1411,7 @@ class InvestmentTelegramBot:
         # Обработчики для настроек (инлайн-кнопки)
         self.application.add_handler(CallbackQueryHandler(self.show_timezone_menu, pattern="^set_timezone$"))
         self.application.add_handler(CallbackQueryHandler(self.show_digest_time_menu, pattern="^set_digest_time$"))
-        self.application.add_handler(CallbackQueryHandler(self.change_token_start, pattern="^change_token$"))
+        
         self.application.add_handler(CallbackQueryHandler(self.choose_account_start, pattern="^choose_account$"))
         self.application.add_handler(CallbackQueryHandler(self.back_to_settings, pattern="^back_to_settings$"))
         self.application.add_handler(CallbackQueryHandler(self.close_settings, pattern="^close_settings$"))
@@ -1437,15 +1437,50 @@ class InvestmentTelegramBot:
         return "ASK_TOKEN"
 
     async def choose_account_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка кнопки выбора счета в настройках"""
-        # Просто перенаправляем на обычную команду выбора счета
-        await self.accounts_command(update, context)
+        """Обработка кнопки выбора счета в настройках (безопасная версия)"""
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text("📋 Загружаю список ваших счетов...")
+        
+        user_id = query.from_user.id
+        user_data = db.get_user(user_id)
+        token = user_data.get('tinkoff_token') if user_data else None
+        
+        if not token:
+            await query.edit_message_text("❌ У вас не подключен API-ключ. Сначала добавьте его.")
+            return
+
+        try:
+            with Client(token) as client:
+                accounts_response = client.users.get_accounts()
+                
+                if not accounts_response or not accounts_response.accounts:
+                    await query.edit_message_text("❌ Не найдено счетов")
+                    return
+                
+                keyboard = []
+                for i, account in enumerate(accounts_response.accounts, 1):
+                    account_name = getattr(account, 'name', 'Счет')
+                    account_id = getattr(account, 'id', 'N/A')
+                    
+                    keyboard.append([
+                        InlineKeyboardButton(
+                            f"🎯 {account_name}", 
+                            callback_data=f"select_acc_{account_id}"
+                        )
+                    ])
+                
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.edit_message_text("Выберите счет для анализа:", reply_markup=reply_markup)
+                
+        except Exception as e:
+            logger.error(f"Accounts error: {e}")
+            await query.edit_message_text("❌ Ошибка загрузки счетов. Проверьте API-ключ.")
         
     async def show_dividends(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик кнопки 'Дивиденды'"""
         await update.message.reply_text("⏳ Считаю будущие дивиденды и купоны... (В разработке)")
         
-    
     async def ask_token(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.callback_query:
             await update.callback_query.answer()
