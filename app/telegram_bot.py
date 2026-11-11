@@ -1385,6 +1385,7 @@ class InvestmentTelegramBot:
             },
             fallbacks=[CommandHandler("start", self.start_command)]
         )
+        self.application.add_handler(conv_handler)
         
         # --- Обработчики для кнопок главного меню ---
         self.application.add_handler(
@@ -1395,6 +1396,9 @@ class InvestmentTelegramBot:
         )
         self.application.add_handler(
             MessageHandler(filters.Regex("^⚙️ Настройки$"), self.show_settings)
+        )
+        self.application.add_handler(
+            MessageHandler(filters.Regex("^💵 Дивиденды/Купоны$"), self.show_dividends)
         )
         
         # Обработчики для настроек (инлайн-кнопки)
