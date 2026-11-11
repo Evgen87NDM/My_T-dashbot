@@ -22,6 +22,47 @@ logger = logging.getLogger(__name__)
 
 class InvestmentTelegramBot:
     """Bot with AI Portfolio Management and account selection"""
+    async def manual_digest(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Ручной вызов сводки"""
+        class FakeJob:
+            data = {'user_id': update.effective_user.id}
+        class FakeContext:
+            job = FakeJob()
+            bot = context.bot
+        await self.send_digest(FakeContext())
+
+    async def show_timezone_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        from app.keyboards import get_timezone_menu
+        await update.message.reply_text("Выберите ваш часовой пояс:", reply_markup=get_timezone_menu())
+
+    async def save_timezone(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+        tz = query.data.replace("tz_", "")
+        db.save_user_data(query.from_user.id, timezone=tz)
+        await query.edit_message_text(f"✅ Часовой пояс изменен на: {tz.split('/')[-1]}")
+
+    async def show_digest_time_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        from app.keyboards import get_digest_time_menu
+        await update.message.reply_text("Выберите удобное время для сводки:", reply_markup=get_digest_time_menu())
+
+    async def save_digest_time(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+        time_str = query.data.replace("dt_", "")
+        db.save_user_data(query.from_user.id, digest_time=time_str)
+        await query.edit_message_text(f"✅ Время сводки изменено на: {time_str}")
+
+    async def back_to_settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        from app.keyboards import get_settings_menu
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text("⚙️ Настройки бота\n\nВыберите, что хотите изменить:", reply_markup=get_settings_menu())
+
+    async def close_settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+        await query.delete_message()
     
     def __init__(self):
         self.token = settings.TELEGRAM_BOT_TOKEN
