@@ -182,29 +182,26 @@ class InvestmentTelegramBot:
         user = update.effective_user
         user_data = db.get_user(user.id)
         
-        # Проверяем, есть ли у пользователя токен
         token = user_data.get('tinkoff_token') if user_data else None
         if not token:
             await update.message.reply_text(
-                "❌ У вас не подключен токен Т-Инвестиций.\n"
-                "Чтобы я мог показать портфель, нажмите ⚙️ Настройки и подключите токен."
+                "❌ У вас не подключен API-ключ.\nНажмите ⚙️ Настройки и подключите ключ."
             )
             return
 
-        await update.message.reply_text("📊 Загружаю данные вашего портфеля...")
+        await update.message.reply_text("💼 Загружаю данные вашего портфеля...")
         
         try:
-            # Создаем клиента с токеном конкретного пользователя
             with Client(token) as client:
                 accounts = client.users.get_accounts()
                 if not accounts.accounts:
                     await update.message.reply_text("❌ У вас нет открытых счетов.")
                     return
 
-                # Берем первый счет (в будущем сделаем выбор)
-                account_id = accounts.accounts[0].id
+                account_id = user_data.get('selected_account')
+                if not account_id or account_id == "all":
+                    account_id = accounts.accounts[0].id
                 
-                # Получаем портфель
                 portfolio = client.operations.get_portfolio(account_id=account_id)
                 
                 total_value = 0
@@ -219,8 +216,21 @@ class InvestmentTelegramBot:
                         value = qty * price
                         total_value += value
                         
-                        ticker = pos.ticker if hasattr(pos, 'ticker') else "N/A"
-                        positions_text += f"• {ticker}: {qty} шт. ({value:,.0f} ₽)\n"
+                        avg_price = pos.average_position_price.units + pos.average_position_price.nano / 1e9
+                        invested = qty * avg_price
+                        pnl = value - invested
+                        pnl_percent = (pnl / invested * 100) if invested > 0 else 0
+                        
+                        name = pos.ticker
+                        try:
+                            instr = client.instruments.get_instrument_by(id_type=1, id=pos.figi)
+                            if instr and hasattr(instr, 'instrument'):
+                                name = instr.instrument.name
+                        except:
+                            pass
+                            
+                        emoji = "🟢" if pnl >= 0 else "🔴"
+                        positions_text += f"{emoji} <b>{name}</b>: {qty} шт. | {value:,.0f} ₽ ({pnl_percent:+.1f}%)\n"
 
                 response = (
                     f"📈 <b>Ваш портфель</b>\n\n"
@@ -228,6 +238,10 @@ class InvestmentTelegramBot:
                     f"{positions_text}"
                 )
                 await update.message.reply_text(response, parse_mode="HTML")
+
+        except Exception as e:
+            logger.error(f"Portfolio error: {e}")
+            await update.message.reply_text(f"❌ Ошибка при загрузке портфеля. Проверьте API-ключ.")
 
         except Exception as e:
             logger.error(f"Portfolio error: {e}")
