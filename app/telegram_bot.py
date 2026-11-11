@@ -1400,10 +1400,13 @@ class InvestmentTelegramBot:
         self.application.add_handler(
             MessageHandler(filters.Regex("^💵 Дивиденды/Купоны$"), self.show_dividends)
         )
+        self.application.add_handler(
+            MessageHandler(filters.Regex("^⚡ Анализ ИИ$"), self.analyze_ai_command)
+        )
         
         # Обработчики для настроек (инлайн-кнопки)
-        self.application.add_handler(MessageHandler(filters.Regex("^🌍 Часовой пояс$"), self.show_timezone_menu))
-        self.application.add_handler(MessageHandler(filters.Regex("^📰 Время новостей$"), self.show_digest_time_menu))
+        self.application.add_handler(CallbackQueryHandler(self.show_timezone_menu, pattern="^set_timezone$"))
+        self.application.add_handler(CallbackQueryHandler(self.show_digest_time_menu, pattern="^set_digest_time$"))
         
         self.application.add_handler(CallbackQueryHandler(self.back_to_settings, pattern="^back_to_settings$"))
         self.application.add_handler(CallbackQueryHandler(self.close_settings, pattern="^close_settings$"))
@@ -1470,7 +1473,75 @@ class InvestmentTelegramBot:
             reply_markup=get_main_menu()
         )
         return ConversationHandler.END
+        
+    async def send_digest(self, context: ContextTypes.DEFAULT_TYPE):
+        """Формирует новостную сводку (пока заглушка)"""
+        user_id = context.job.data['user_id']
+        user_data = db.get_user(user_id)
+        if not user_data:
+            return
+            
+        name = user_data.get('user_name', 'Инвестор')
+        
+        # В будущем здесь будет парсинг новостей по тикерам из портфеля
+        digest_text = (
+            f"📰 <b>Утренняя сводка для {name}</b>\n\n"
+            f"🇷🇺 <b>Рынок РФ:</b> Индекс Мосбиржи показывает рост на фоне новостей.\n"
+            f"💵 <b>Курсы валют:</b> USD 82.75 (+0.75%), EUR 92.39 (+0.22%).\n"
+            f"🛢 <b>Нефть:</b> Brent $91.62 (-1.03%).\n\n"
+            f"<i>Это тестовое сообщение. Скоро здесь будут новости по вашим акциям.</i>"
+        )
+        await context.bot.send_message(chat_id=user_id, text=digest_text, parse_mode="HTML")
+        
+    async def analyze_ai_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Анализ портфеля через DeepSeek"""
+        user_id = update.effective_user.id
+        user_data = db.get_user(user_id)
+        
+        if not user_data or not user_data.get('tinkoff_token'):
+            await update.message.reply_text("❌ Сначала подключите API-ключ в настройках.")
+            return
 
+        await update.message.reply_text("🧠 Запускаю AI-анализ вашего портфеля (это займет 5-10 секунд)...")
+        
+        # Получаем данные портфеля
+        portfolio_data = await self._get_all_accounts_portfolio_data()
+        if not portfolio_data:
+            await update.message.reply_text("❌ Не удалось загрузить портфель для анализа.")
+            return
+            
+        if not self.ai_manager:
+            await update.message.reply_text("❌ ИИ временно недоступен.")
+            return
+
+        # Формируем контекст для ИИ
+        positions = []
+        for acc in portfolio_data['accounts']:
+            for pos in acc['positions']:
+                positions.append(f"{pos['name']} ({pos['ticker']}): {pos['value']:,.0f} руб.")
+                
+        portfolio_str = "\\n".join(positions) if positions else "Портфель пуст"
+        
+        prompt = (
+            f"Ты — профессиональный инвестиционный советник. Вот портфель пользователя:\\n{portfolio_str}\\n\\n"
+            f"Общая стоимость: {portfolio_data['total_portfolio_value']:,.0f} руб.\\n"
+            f"Напиши краткий анализ портфеля (3-4 абзаца).\\n"
+            f"1. Оцени диверсификацию (какие сектора преобладают).\\n"
+            f"2. Укажи на потенциальные риски.\\n"
+            f"3. Дай 1-2 конструктивные идеи по улучшению (без призывов 'покупай сейчас').\\n"
+            f"В конце добавь дисклеймер: 'Это не индивидуальная инвестиционная рекомендация.'"
+        )
+        
+        try:
+            response = await self.ai_manager.generate_response(prompt, "")
+            # Ограничиваем длину сообщения, если ИИ написал слишком много
+            if len(response) > 4000:
+                response = response[:3900] + "..."
+            await update.message.reply_text(f"🤖 <b>AI-Анализ:</b>\\n\\n{response}", parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"AI Analysis error: {e}")
+            await update.message.reply_text("❌ Ошибка при генерации анализа.")
+            
     def run(self):
         """Run the bot"""
         self.application = Application.builder().token(self.token).build()
