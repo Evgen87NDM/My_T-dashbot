@@ -111,7 +111,6 @@ class InvestmentTelegramBot:
         user = update.effective_user
         user_data = db.get_user(user.id)
         
-        # Если пользователь уже настроен (есть токен), показываем меню
         if user_data and user_data.get('tinkoff_token'):
             name = user_data.get('user_name') or user.first_name
             await update.message.reply_text(
@@ -120,19 +119,23 @@ class InvestmentTelegramBot:
             )
             return ConversationHandler.END
 
-        # Если новый — начинаем знакомство
+        # Берем имя из Telegram и сразу просим токен
+        context.user_data['temp_name'] = user.first_name
+        
         welcome_text = (
             f"👋 Привет, {user.first_name}!\n\n"
             "Я — твой личный AI-ассистент по инвестициям.\n"
             "Что я умею:\n"
-            "📊 Анализировать твой портфель простым языком\n"
-            "💰 Следить за дивидендами и купонами\n"
-            "📅 Присылать утренний дайджест с новостями\n\n"
-            "Давай познакомимся. Как мне к тебе обращаться? (Напиши свое имя):"
+            "💼 Анализировать твой портфель простым языком\n"
+            "💵 Следить за дивидендами и купонами\n"
+            "📰 Присылать утреннюю сводку новостей\n\n"
+            "Для начала работы отправь мне свой API-ключ от Т-Инвестиций (создай его с правами «Только для чтения»).\n\n"
+            "Или нажми кнопку ниже, чтобы пропустить этот шаг (тогда я буду присылать только общие новости рынка)."
         )
-        await update.message.reply_text(welcome_text)
-        return "ASK_NAME"
-
+        keyboard = [[InlineKeyboardButton("⏩ Пропустить", callback_data="skip_token")]]
+        await update.message.reply_text(welcome_text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return "ASK_TOKEN"
+        
     async def portfolio_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /portfolio command - анализ портфеля пользователя"""
         user = update.effective_user
