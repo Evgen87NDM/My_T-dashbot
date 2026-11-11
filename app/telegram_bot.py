@@ -1595,7 +1595,7 @@ class InvestmentTelegramBot:
         self.application = Application.builder().token(self.token).build()
         self.setup_handlers()
         
-            # Setup bot commands menu асинхронно
+        # Setup bot commands menu асинхронно
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
