@@ -33,7 +33,9 @@ class InvestmentTelegramBot:
 
     async def show_timezone_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         from app.keyboards import get_timezone_menu
-        await update.message.reply_text("Выберите ваш часовой пояс:", reply_markup=get_timezone_menu())
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text("🌍 Выберите ваш часовой пояс:", reply_markup=get_timezone_menu())
 
     async def save_timezone(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -44,7 +46,9 @@ class InvestmentTelegramBot:
 
     async def show_digest_time_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         from app.keyboards import get_digest_time_menu
-        await update.message.reply_text("Выберите удобное время для сводки:", reply_markup=get_digest_time_menu())
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text("📰 Выберите удобное время для сводки:", reply_markup=get_digest_time_menu())
 
     async def save_digest_time(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -1407,7 +1411,8 @@ class InvestmentTelegramBot:
         # Обработчики для настроек (инлайн-кнопки)
         self.application.add_handler(CallbackQueryHandler(self.show_timezone_menu, pattern="^set_timezone$"))
         self.application.add_handler(CallbackQueryHandler(self.show_digest_time_menu, pattern="^set_digest_time$"))
-        
+        self.application.add_handler(CallbackQueryHandler(self.change_token_start, pattern="^change_token$"))
+        self.application.add_handler(CallbackQueryHandler(self.choose_account_start, pattern="^choose_account$"))
         self.application.add_handler(CallbackQueryHandler(self.back_to_settings, pattern="^back_to_settings$"))
         self.application.add_handler(CallbackQueryHandler(self.close_settings, pattern="^close_settings$"))
         self.application.add_handler(CallbackQueryHandler(self.save_timezone, pattern="^tz_"))
@@ -1423,7 +1428,19 @@ class InvestmentTelegramBot:
             reply_markup=get_settings_menu(),
             parse_mode="Markdown"
         )
+    async def change_token_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка кнопки изменения токена в настройках"""
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text("Отправьте мне новый API-ключ от Т-Инвестиций (с правами «Только для чтения»).")
+        # Возвращаемся к шагу ожидания токена
+        return "ASK_TOKEN"
 
+    async def choose_account_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка кнопки выбора счета в настройках"""
+        # Просто перенаправляем на обычную команду выбора счета
+        await self.accounts_command(update, context)
+        
     async def show_dividends(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик кнопки 'Дивиденды'"""
         await update.message.reply_text("⏳ Считаю будущие дивиденды и купоны... (В разработке)")
