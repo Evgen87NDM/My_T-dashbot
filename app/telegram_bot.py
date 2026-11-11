@@ -1344,27 +1344,23 @@ class InvestmentTelegramBot:
         
         # --- Обработчики для кнопок главного меню ---
         self.application.add_handler(
+            MessageHandler(filters.Regex("^💼 Портфель$"), self.portfolio_command)
+        )
+        self.application.add_handler(
+            MessageHandler(filters.Regex("^📰 Новости$"), self.manual_digest)
+        )
+        self.application.add_handler(
             MessageHandler(filters.Regex("^⚙️ Настройки$"), self.show_settings)
         )
-
-        self.application.add_handler(
-            MessageHandler(filters.Regex("^📊 Мой портфель$"), self.portfolio_command)
-        )
-
-        self.application.add_handler(
-            MessageHandler(filters.Regex("^💰 Дивиденды$"), self.show_dividends)
-        )
-
-        # Add callback handlers
-        self.application.add_handler(CallbackQueryHandler(
-            self.handle_account_selection, 
-            pattern="^select_acc_"
-        ))
         
-        self.application.add_handler(CallbackQueryHandler(
-            self.handle_confirmation_callback, 
-            pattern="^(confirm|cancel|show_commissions)"
-        ))
+        # Обработчики для настроек (инлайн-кнопки)
+        self.application.add_handler(MessageHandler(filters.Regex("^🌍 Часовой пояс$"), self.show_timezone_menu))
+        self.application.add_handler(MessageHandler(filters.Regex("^📰 Время новостей$"), self.show_digest_time_menu))
+        
+        self.application.add_handler(CallbackQueryHandler(self.back_to_settings, pattern="^back_to_settings$"))
+        self.application.add_handler(CallbackQueryHandler(self.close_settings, pattern="^close_settings$"))
+        self.application.add_handler(CallbackQueryHandler(self.save_timezone, pattern="^tz_"))
+        self.application.add_handler(CallbackQueryHandler(self.save_digest_time, pattern="^dt_"))
         
         # Этот обработчик должен быть САМЫМ ПОСЛЕДНИМ (он ловит весь остальной текст)
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
