@@ -1585,54 +1585,34 @@ class InvestmentTelegramBot:
             # Ограничиваем длину сообщения, если ИИ написал слишком много
             if len(response) > 4000:
                 response = response[:3900] + "..."
-            await update.message.reply_text(f"🤖 <b>AI-Анализ:</b>\\n\\n{response}", parse_mode="HTML")
+            await update.message.reply_text(f"🤖 <b>AI-Анализ:</b>\n\n{response}", parse_mode="HTML")
         except Exception as e:
             logger.error(f"AI Analysis error: {e}")
             await update.message.reply_text("❌ Ошибка при генерации анализа.")
             
+    async def post_init(self, application: Application) -> None:
+        """Выполняется при запуске бота перед началом polling"""
+        await self._setup_bot_commands()
+            
     def run(self):
         """Run the bot"""
-        self.application = Application.builder().token(self.token).build()
+        # Подключаем post_init
+        self.application = Application.builder().token(self.token).post_init(self.post_init).build()
         self.setup_handlers()
-        
-        # Setup bot commands menu асинхронно
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self._setup_bot_commands())
-        except Exception as e:
-            logger.warning(f"Could not setup bot commands: {e}")
         
         mode, token_info = self._get_operation_mode_info()
         ai_status = "AVAILABLE" if self.ai_manager else "UNAVAILABLE"
-        trading_mode = "AUTO" if settings.AUTO_TRADING_MODE else "MANUAL"
-        
-        # Get tariff info for startup message
-        tariff_info = self.tariff_manager.get_tariff_info()
         
         logger.info("🤖 Investment Bot starting...")
         print("=" * 60)
         print("🤖 INVESTMENT ADVISOR BOT")
         print("=" * 60)
         print(f"🔧 {mode}")
-        print(f"💡 {token_info}")
         print(f"🤖 AI: {ai_status}")
-        print(f"🎯 TRADING MODE: {trading_mode}")
-        print(f"💰 TARIFF: {tariff_info['name']} ({tariff_info['commission_rates']['buy']}% commission)")
         print("📍 Бот запущен и слушает сообщения...")
-        print("💬 РАБОТАЮЩИЕ КОМАНДЫ:")
-        print("   /start - информация о режиме")
-        print("   /portfolio - анализ портфеля (ВСЕ СЧЕТА)")
-        print("   /accounts - выбор счета для управления (автоматически запускает AI)") 
-        print("   /health - статус системы")
-        print("   /auto_trade - AI управление выбранным счетом")
-        print("   /auto_trade_all - AI управление всеми счетами")
-        print("   /commission - информация о тарифе")
-        print("   /help - помощь")
-        print("⏹️  Ctrl+C для остановки")
         print("-" * 60)
 
-        # Простой запуск без сложной логики event loop
+        # Простой запуск
         self.application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
