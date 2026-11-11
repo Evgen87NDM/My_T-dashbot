@@ -243,10 +243,6 @@ class InvestmentTelegramBot:
             logger.error(f"Portfolio error: {e}")
             await update.message.reply_text(f"❌ Ошибка при загрузке портфеля. Проверьте API-ключ.")
 
-        except Exception as e:
-            logger.error(f"Portfolio error: {e}")
-            await update.message.reply_text(f"❌ Ошибка при загрузке портфеля. Возможно, токен неверный.")
-
     async def accounts_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /accounts command with account selection from DB"""
         user = update.effective_user
