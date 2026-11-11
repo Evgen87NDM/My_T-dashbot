@@ -1327,23 +1327,13 @@ class InvestmentTelegramBot:
         conv_handler = ConversationHandler(
             entry_points=[CommandHandler("start", self.start_command)],
             states={
-                "ASK_NAME": [MessageHandler(filters.TEXT & ~filters.COMMAND, self.ask_name)],
                 "ASK_TOKEN": [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.ask_timezone),
-                    CallbackQueryHandler(self.ask_timezone, pattern="^skip_token$")
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.ask_token),
+                    CallbackQueryHandler(self.ask_token, pattern="^skip_token$")
                 ],
-                "ASK_CITY": [CallbackQueryHandler(self.finish_onboarding, pattern="^tz_")]
             },
             fallbacks=[CommandHandler("start", self.start_command)]
         )
-        self.application.add_handler(conv_handler)
-        self.application.add_handler(CommandHandler("portfolio", self.portfolio_command))
-        self.application.add_handler(CommandHandler("accounts", self.accounts_command))
-        self.application.add_handler(CommandHandler("health", self.health_command))
-        self.application.add_handler(CommandHandler("auto_trade", self.auto_trade_command))
-        self.application.add_handler(CommandHandler("auto_trade_all", self.auto_trade_all_command))
-        self.application.add_handler(CommandHandler("commission", self.commission_command))
-        self.application.add_handler(CommandHandler("help", self.help_command))
         
         # --- Обработчики для кнопок главного меню ---
         self.application.add_handler(
@@ -1380,20 +1370,8 @@ class InvestmentTelegramBot:
         """Обработчик кнопки 'Дивиденды'"""
         await update.message.reply_text("⏳ Считаю будущие дивиденды и купоны... (В разработке)")
         
-    async def ask_name(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user_name = update.message.text
-        context.user_data['temp_name'] = user_name
-        
-        text = (
-            f"Очень приятно, {user_name}! 🤝\n\n"
-            "Теперь отправь мне свой API-токен от Т-Инвестиций (создай его с правами «Только для чтения»).\n\n"
-            "Или нажми кнопку ниже, чтобы пропустить этот шаг (тогда я буду присылать только общие новости рынка)."
-        )
-        keyboard = [[InlineKeyboardButton("⏩ Пропустить", callback_data="skip_token")]]
-        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-        return "ASK_TOKEN"
-
-    async def ask_timezone(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    
+    async def ask_token(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.callback_query:
             await update.callback_query.answer()
             await update.callback_query.edit_message_text("Хорошо, пропускаем подключение портфеля.")
@@ -1401,21 +1379,24 @@ class InvestmentTelegramBot:
             message = update.callback_query.message
         else:
             token = update.message.text
-            await update.message.reply_text("✅ Токен принят! Проверю его позже.")
+            await update.message.reply_text("✅ API-ключ принят! Проверю его позже.")
             message = update.message
         
-        context.user_data['temp_token'] = token
+        user_id = message.chat.id
+        name = context.user_data.get('temp_name', "Инвестор")
         
-        text = "Остался последний шаг! Выбери свой город, чтобы дайджест приходил вовремя:"
-        keyboard = [
-            [InlineKeyboardButton("Москва", callback_data="tz_Europe/Moscow")],
-            [InlineKeyboardButton("Екатеринбург", callback_data="tz_Asia/Yekaterinburg")],
-            [InlineKeyboardButton("Новосибирск", callback_data="tz_Asia/Novosibirsk")],
-            [InlineKeyboardButton("Владивосток", callback_data="tz_Asia/Vladivostok")]
-        ]
-        await message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-        return "ASK_CITY"
-
+        # Сохраняем в базу (по умолчанию Москва и 09:00)
+        db.save_user_data(user_id, user_name=name, tinkoff_token=token, timezone="Europe/Moscow", digest_time="09:00")
+        
+        await message.reply_text(
+            f"🎉 Отлично, {name}! Настройка завершена.\n"
+            "По умолчанию я буду присылать сводку в 09:00 по Москве.\n"
+            "Вы можете изменить это в ⚙️ Настройках.\n\n"
+            "Используй кнопки внизу, чтобы управлять ботом:",
+            reply_markup=get_main_menu()
+        )
+        return ConversationHandler.END
+        
     async def finish_onboarding(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         await query.answer()
