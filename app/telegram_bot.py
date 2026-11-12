@@ -175,7 +175,7 @@ class InvestmentTelegramBot:
         )
         keyboard = [[InlineKeyboardButton("⏩ Пропустить", callback_data="skip_token")]]
         await update.message.reply_text(welcome_text, reply_markup=InlineKeyboardMarkup(keyboard))
-        return "ASK_TOKEN"
+        return ""
         
     async def portfolio_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /portfolio command - анализ портфеля пользователя"""
@@ -1378,9 +1378,9 @@ class InvestmentTelegramBot:
         conv_handler = ConversationHandler(
             entry_points=[CommandHandler("start", self.start_command), CallbackQueryHandler(self.change_token_start, pattern="^change_token$")],
             states={
-                "ASK_TOKEN": [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.ask_token),
-                    CallbackQueryHandler(self.ask_token, pattern="^skip_token$")
+                "": [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.),
+                    CallbackQueryHandler(self., pattern="^skip_token$")
                 ],
             },
             fallbacks=[CommandHandler("start", self.start_command)]
@@ -1430,7 +1430,7 @@ class InvestmentTelegramBot:
         await query.answer()
         await query.edit_message_text("Отправьте мне новый API-ключ от Т-Инвестиций (с правами «Только для чтения»).")
         # Возвращаемся к шагу ожидания токена
-        return "ASK_TOKEN"
+        return ""
 
     async def choose_account_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка кнопки выбора счета в настройках (безопасная версия)"""
@@ -1489,7 +1489,7 @@ class InvestmentTelegramBot:
             message = update.message
         
         user_id = message.chat.id
-        name = update.effective_user.first_name)
+        name = update.effective_user.first_name
         
         # Сохраняем в базу (по умолчанию Москва и 09:00)
         db.save_user_data(user_id, user_name=name, tinkoff_token=token, timezone="Europe/Moscow", digest_time="09:00")
