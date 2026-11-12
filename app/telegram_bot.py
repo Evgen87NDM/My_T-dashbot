@@ -270,7 +270,7 @@ class InvestmentTelegramBot:
                     
                     keyboard.append([
                         InlineKeyboardButton(
-                            f"🎯 {account_name}", 
+                            f"💳 {account_name}", 
                             callback_data=f"select_acc_{account_id}"
                         )
                     ])
@@ -618,7 +618,15 @@ class InvestmentTelegramBot:
                 # Сохраняем счет в базу данных!
                 db.save_user_data(user_id, selected_account=account_id)
                 
-                await query.edit_message_text(f"✅ Счет выбран и сохранен!\n\nТеперь я буду анализировать именно его.")
+                # Создаем кнопку для возврата в настройки
+                keyboard = [[InlineKeyboardButton("⚙️ Вернуться в настройки", callback_data="back_to_settings")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await query.edit_message_text(
+                    "✅ <b>Счет успешно выбран!</b>\n\nТеперь я буду анализировать и присылать отчеты именно по этому счету.", 
+                    reply_markup=reply_markup,
+                    parse_mode="HTML"
+                )
                 return
             
         except Exception as e:
@@ -1416,7 +1424,7 @@ class InvestmentTelegramBot:
         self.application.add_handler(CallbackQueryHandler(self.close_settings, pattern="^close_settings$"))
         self.application.add_handler(CallbackQueryHandler(self.save_timezone, pattern="^tz_"))
         self.application.add_handler(CallbackQueryHandler(self.save_digest_time, pattern="^dt_"))
-        
+        self.application.add_handler(CallbackQueryHandler(self.handle_account_selection, pattern="^select_acc_"))
         # Этот обработчик должен быть САМЫМ ПОСЛЕДНИМ (он ловит весь остальной текст)
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         
@@ -1464,7 +1472,7 @@ class InvestmentTelegramBot:
                     
                     keyboard.append([
                         InlineKeyboardButton(
-                            f"🎯 {account_name}", 
+                            f"💳 {account_name}", 
                             callback_data=f"select_acc_{account_id}"
                         )
                     ])
