@@ -1633,7 +1633,7 @@ class InvestmentTelegramBot:
         """Выполняется при запуске бота перед началом polling"""
         await self._setup_bot_commands()
 
-        def _parse_selection(self, value):
+    def _parse_selection(self, value):
         """Парсит сохраненный выбор счетов из БД"""
         if not value or value == "all":
             return "all"
@@ -1782,7 +1782,62 @@ class InvestmentTelegramBot:
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⚙️ В настройки", callback_data="back_to_settings")]]),
             parse_mode="HTML"
         )
-            
+
+    async def choose_account_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка кнопки выбора счета в настройках (мультивыбор)"""
+        query = update.callback_query
+        await query.answer()
+        user_id = query.from_user.id
+        user_data = db.get_user(user_id)
+        token = user_data.get('tinkoff_token') if user_data else None
+
+        if not token:
+            await query.edit_message_text("❌ Сначала добавьте API-ключ.")
+            return
+
+        await query.edit_message_text("📋 Загружаю список ваших счетов...")
+
+        try:
+            with Client(token) as client:
+                accounts_response = client.users.get_accounts()
+                active_accounts = []
+
+                for account in accounts_response.accounts:
+                    if account.status != AccountStatus.ACCOUNT_STATUS_OPEN:
+                        continue
+                    try:
+                        positions = client.operations.get_positions(account_id=account.id)
+                        has_assets = False
+                        if positions.securities:
+                            has_assets = True
+                        if positions.money:
+                            for m in positions.money:
+                                if m.currency == 'rub' and (m.units > 0 or m.nano > 0):
+                                    has_assets = True
+                                    break
+                        if not has_assets:
+                            continue
+                    except:
+                        continue
+                    active_accounts.append((account.id, getattr(account, 'name', 'Счет')))
+
+                if not active_accounts:
+                    await query.edit_message_text("❌ У вас нет счетов с активами.")
+                    return
+
+                # Загружаем текущий выбор
+                current = self._parse_selection(user_data.get('selected_account'))
+                if current == "all":
+                    current = [acc_id for acc_id, _ in active_accounts]
+
+                context.user_data['temp_active_accounts'] = active_accounts
+                context.user_data['temp_acc_selection'] = current
+                await self._render_accounts_menu(query, context)
+
+        except Exception as e:
+            logger.error(f"Accounts error: {e}")
+            await query.edit_message_text("❌ Ошибка загрузки счетов. Проверьте API-ключ.")
+
     def run(self):
         """Run the bot"""
         # Подключаем post_init
