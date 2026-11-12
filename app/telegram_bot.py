@@ -1448,62 +1448,6 @@ class InvestmentTelegramBot:
         await query.edit_message_text("Отправьте мне новый API-ключ от Т-Инвестиций (с правами «Только для чтения»).")
         # Возвращаемся к шагу ожидания токена
         return "ASK_TOKEN"
-
-    async def choose_account_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка кнопки выбора счета в настройках (безопасная версия)"""
-        query = update.callback_query
-        await query.answer()
-        await query.edit_message_text("📋 Загружаю список ваших счетов...")
-        
-        user_id = query.from_user.id
-        user_data = db.get_user(user_id)
-        token = user_data.get('tinkoff_token') if user_data else None
-        
-        if not token:
-            await query.edit_message_text("❌ У вас не подключен API-ключ. Сначала добавьте его.")
-            return
-
-        try:
-            with Client(token) as client:
-                accounts_response = client.users.get_accounts()
-                
-                if not accounts_response or not accounts_response.accounts:
-                    await query.edit_message_text("❌ Не найдено счетов")
-                    return
-                
-                keyboard = []
-                for account in accounts_response.accounts:
-                    # Фильтр 1: Открытый статус
-                    if account.status != AccountStatus.ACCOUNT_STATUS_OPEN:
-                        continue
-                        
-                    # Фильтр 2: Есть ли средства
-                    portfolio = client.operations.get_portfolio(account_id=account.id)
-                    total_value = portfolio.total_amount_portfolio.units + (portfolio.total_amount_portfolio.nano / 1e9)
-                    
-                    if total_value <= 0:
-                        continue
-
-                    account_name = getattr(account, 'name', 'Счет')
-                    account_id = getattr(account, 'id', 'N/A')
-                    
-                    keyboard.append([
-                        InlineKeyboardButton(
-                            f"💳 {account_name}", 
-                            callback_data=f"select_acc_{account_id}"
-                        )
-                    ])
-                
-                if not keyboard:
-                    await query.edit_message_text("❌ У вас нет действующих счетов с активами.")
-                    return
-                
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await query.edit_message_text("Выберите счет для анализа:", reply_markup=reply_markup)
-                
-        except Exception as e:
-            logger.error(f"Accounts error: {e}")
-            await query.edit_message_text("❌ Ошибка загрузки счетов. Проверьте API-ключ.")
         
     async def show_dividends(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик кнопки 'Дивиденды'"""
