@@ -175,7 +175,7 @@ class InvestmentTelegramBot:
         )
         keyboard = [[InlineKeyboardButton("⏩ Пропустить", callback_data="skip_token")]]
         await update.message.reply_text(welcome_text, reply_markup=InlineKeyboardMarkup(keyboard))
-        return ""
+        return "ASK_TOKEN"
         
     async def portfolio_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /portfolio command - анализ портфеля пользователя"""
@@ -1401,7 +1401,7 @@ class InvestmentTelegramBot:
             MessageHandler(filters.Regex("^⚙️ Настройки$"), self.show_settings)
         )
         self.application.add_handler(
-            MessageHandler(filters.Regex("^💵 Выплаты$"), self.show_dividends) # <-- Обновили название
+            MessageHandler(filters.Regex("^💵 Выплаты$"), self.show_dividends)
         )
         self.application.add_handler(
             MessageHandler(filters.Regex("^⚡ Анализ ИИ$"), self.analyze_ai_command)
@@ -1418,7 +1418,7 @@ class InvestmentTelegramBot:
         self.application.add_handler(CallbackQueryHandler(self.save_digest_time, pattern="^dt_"))
         
         # Этот обработчик должен быть САМЫМ ПОСЛЕДНИМ (он ловит весь остальной текст)
-        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.))
+        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         
     async def show_settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик кнопки 'Настройки'"""
@@ -1433,7 +1433,7 @@ class InvestmentTelegramBot:
         await query.answer()
         await query.edit_message_text("Отправьте мне новый API-ключ от Т-Инвестиций (с правами «Только для чтения»).")
         # Возвращаемся к шагу ожидания токена
-        return ""
+        return "ASK_TOKEN"
 
     async def choose_account_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка кнопки выбора счета в настройках (безопасная версия)"""
