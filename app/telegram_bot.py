@@ -1379,7 +1379,7 @@ class InvestmentTelegramBot:
             entry_points=[CommandHandler("start", self.start_command), CallbackQueryHandler(self.change_token_start, pattern="^change_token$")],
             states={
                 "": [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.,
                     CallbackQueryHandler(self., pattern="^skip_token$")
                 ],
             },
