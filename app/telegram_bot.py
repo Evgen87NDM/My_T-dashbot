@@ -134,16 +134,13 @@ class InvestmentTelegramBot:
         )
 
     async def _setup_bot_commands(self):
-        """Убираем кнопку меню и список команд"""
+        """Оставляем только команду /start в меню для спасения"""
         try:
-            # Устанавливаем ПУСТОЙ список команд
-            await self.application.bot.set_my_commands([])
-            
-            # Скрываем кнопку "Меню" (ставим стандартную пустую)
-            from telegram import MenuButtonDefault
-            await self.application.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
-            
-            logger.info("✅ Кнопка 'Меню' и команды скрыты")
+            commands = [
+                BotCommand("start", "🏠 Главное меню"),
+            ]
+            await self.application.bot.set_my_commands(commands)
+            logger.info("✅ Меню команд обновлено (только /start)")
         except Exception as e:
             logger.warning(f"⚠️ Could not update bot commands: {e}")
 
@@ -151,14 +148,18 @@ class InvestmentTelegramBot:
         user = update.effective_user
         user_data = db.get_user(user.id)
         
+        # ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ ИМЯ В БАЗЕ
+        # Берем имя напрямую из Telegram и сохраняем
+        db.save_user_data(user.id, user_name=user.first_name)
+        
         if user_data and user_data.get('tinkoff_token'):
-            name = user_data.get('user_name') or user.first_name
+            name = user.first_name # Используем имя из Telegram
             await update.message.reply_text(
                 f"С возвращением, {name}! Рад тебя видеть.\nВыбери действие в меню:",
                 reply_markup=get_main_menu()
             )
             return ConversationHandler.END
-
+            
         # Берем имя из Telegram и сразу просим токен
         context.user_data['temp_name'] = user.first_name
         
@@ -1397,7 +1398,7 @@ class InvestmentTelegramBot:
             MessageHandler(filters.Regex("^⚙️ Настройки$"), self.show_settings)
         )
         self.application.add_handler(
-            MessageHandler(filters.Regex("^💵 Дивиденды/Купоны$"), self.show_dividends)
+            MessageHandler(filters.Regex("^💵 Выплаты$"), self.show_dividends)
         )
         self.application.add_handler(
             MessageHandler(filters.Regex("^⚡ Анализ ИИ$"), self.analyze_ai_command)
@@ -1488,7 +1489,7 @@ class InvestmentTelegramBot:
             message = update.message
         
         user_id = message.chat.id
-        name = context.user_data.get('temp_name', "Инвестор")
+        name = update.effective_user.first_name)
         
         # Сохраняем в базу (по умолчанию Москва и 09:00)
         db.save_user_data(user_id, user_name=name, tinkoff_token=token, timezone="Europe/Moscow", digest_time="09:00")
