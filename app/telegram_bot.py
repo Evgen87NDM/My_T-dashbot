@@ -1374,13 +1374,16 @@ class InvestmentTelegramBot:
 
     def setup_handlers(self):
         """Setup command handlers with account selection"""
-        # Настройка пошагового диалога (Onboarding)
+        # Настройка пошагового диалога (Onboarding + Смена токена)
         conv_handler = ConversationHandler(
-            entry_points=[CommandHandler("start", self.start_command), CallbackQueryHandler(self.change_token_start, pattern="^change_token$")],
+            entry_points=[
+                CommandHandler("start", self.start_command),
+                CallbackQueryHandler(self.change_token_start, pattern="^change_token$")
+            ],
             states={
-                "": [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.,
-                    CallbackQueryHandler(self., pattern="^skip_token$")
+                "ASK_TOKEN": [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.ask_token),
+                    CallbackQueryHandler(self.ask_token, pattern="^skip_token$")
                 ],
             },
             fallbacks=[CommandHandler("start", self.start_command)]
@@ -1398,13 +1401,13 @@ class InvestmentTelegramBot:
             MessageHandler(filters.Regex("^⚙️ Настройки$"), self.show_settings)
         )
         self.application.add_handler(
-            MessageHandler(filters.Regex("^💵 Выплаты$"), self.show_dividends)
+            MessageHandler(filters.Regex("^💵 Выплаты$"), self.show_dividends) # <-- Обновили название
         )
         self.application.add_handler(
             MessageHandler(filters.Regex("^⚡ Анализ ИИ$"), self.analyze_ai_command)
         )
         
-        # Обработчики для настроек (инлайн-кнопки)
+        # --- Обработчики для настроек (инлайн-кнопки) ---
         self.application.add_handler(CallbackQueryHandler(self.show_timezone_menu, pattern="^set_timezone$"))
         self.application.add_handler(CallbackQueryHandler(self.show_digest_time_menu, pattern="^set_digest_time$"))
         
