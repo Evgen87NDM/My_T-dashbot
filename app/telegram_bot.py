@@ -1418,7 +1418,7 @@ class InvestmentTelegramBot:
         self.application.add_handler(CallbackQueryHandler(self.save_digest_time, pattern="^dt_"))
         
         # Этот обработчик должен быть САМЫМ ПОСЛЕДНИМ (он ловит весь остальной текст)
-        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.))
         
     async def show_settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик кнопки 'Настройки'"""
