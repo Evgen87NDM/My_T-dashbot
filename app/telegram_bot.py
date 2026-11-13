@@ -24,12 +24,8 @@ class InvestmentTelegramBot:
     """Bot with AI Portfolio Management and account selection"""
     async def manual_digest(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Ручной вызов сводки"""
-        class FakeJob:
-            data = {'user_id': update.effective_user.id}
-        class FakeContext:
-            job = FakeJob()
-            bot = context.bot
-        await self.send_digest(FakeContext())
+        user_id = update.effective_user.id
+        await self.send_digest(context, user_id=user_id)
 
     async def show_timezone_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         from app.keyboards import get_timezone_menu
@@ -1615,16 +1611,25 @@ class InvestmentTelegramBot:
         )
         return ConversationHandler.END
         
-    async def send_digest(self, context: ContextTypes.DEFAULT_TYPE):
-        """Формирует новостную сводку (пока заглушка)"""
-        user_id = context.job.data['user_id']
+    async def send_digest(self, context: ContextTypes.DEFAULT_TYPE, user_id: int = None):
+        """Формирует и отправляет сводку конкретному пользователю"""
+        if user_id is None:
+            if hasattr(context, 'job') and context.job and hasattr(context.job, 'data'):
+                try:
+                    user_id = context.job.data.get('user_id') if isinstance(context.job.data, dict) else None
+                except:
+                    user_id = None
+
+        if not user_id:
+            logger.warning("send_digest: не удалось определить user_id")
+            return
+
         user_data = db.get_user(user_id)
         if not user_data:
             return
-            
+
         name = user_data.get('user_name', 'Инвестор')
-        
-        # В будущем здесь будет парсинг новостей по тикерам из портфеля
+
         digest_text = (
             f"📰 <b>Привет, {name}</b>\n\n"
             f"Сводка актуальных новостей на сегодня:\n\n"
@@ -1633,7 +1638,12 @@ class InvestmentTelegramBot:
             f"🛢 <b>Нефть:</b> Brent $91.62 (-1.03%).\n\n"
             f"<i>Это тестовое сообщение. Скоро здесь будут новости по вашим акциям.</i>"
         )
-        await context.bot.send_message(chat_id=user_id, text=digest_text, parse_mode="HTML")
+
+        try:
+            await context.bot.send_message(chat_id=user_id, text=digest_text, parse_mode="HTML")
+            logger.info(f"✅ Сводка отправлена пользователю {user_id}")
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось отправить сводку пользователю {user_id}: {e}")
         
     async def analyze_ai_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
@@ -2133,54 +2143,57 @@ class InvestmentTelegramBot:
 
     def run(self):
         """Run the bot"""
-        # Подключаем post_init
         self.application = Application.builder().token(self.token).post_init(self.post_init).build()
         self.setup_handlers()
-        
-        # --- ПЛАНИРОВЩИК УТРЕННЕЙ СВОДКИ ---
-        # Мы ставим задачу каждый день в 09:00 (по времени сервера, обычно это UTC или МСК)
-        import datetime as dt
-        import pytz
-        moscow_tz = pytz.timezone('Europe/Moscow')
-        
-        # Для теста давайте поставим время через 2 минуты от текущего момента, 
-        # чтобы вы могли увидеть, как это работает прямо сейчас!
-        current_time = dt.datetime.now(moscow_tz) + dt.timedelta(minutes=2)
-        
-        # (Для реальной работы раскомментируйте строку ниже и закомментируйте строку выше)
-        # current_time = dt.datetime.now(moscow_tz).replace(hour=9, minute=0, second=0, microsecond=0)
 
+        # --- ПЛАНИРОВЩИК СВОДКИ (проверка каждую минуту) ---
         async def daily_digest_job(context: ContextTypes.DEFAULT_TYPE):
-            """Задача для рассылки сводки всем пользователям из БД"""
-            try:
-                # В реальности тут нужно получать список всех пользователей из db
-                # Для теста возьмем вас (ваш ID нужно знать)
-                # ВАЖНО: Замените 123456789 на ваш реальный Telegram ID
-                class FakeJob:
-                    data = {'user_id': 407202902} # <--- ВАШ ID
-                class FakeContext:
-                    job = FakeJob()
-                    bot = context.bot
-                
-                # Вызываем функцию отправки сводки
-                await self.send_digest(FakeContext())
-                logger.info("✅ Утренняя сводка отправлена")
-            except Exception as e:
-                logger.error(f"Digest job error: {e}")
+            """Проверяет всех пользователей и отправляет сводку тем, у кого наступило их локальное время"""
+            from datetime import datetime
+            import pytz
 
-        # Планируем задачу
+            try:
+                all_users = db.get_all_users()
+            except Exception as e:
+                logger.error(f"Ошибка получения списка пользователей: {e}")
+                return
+
+            for user in all_users:
+                user_id = user.get('telegram_id')
+                if not user_id:
+                    continue
+                if not user.get('digest_enabled', 1):
+                    continue
+
+                try:
+                    tz_name = user.get('timezone') or 'Europe/Moscow'
+                    user_tz = pytz.timezone(tz_name)
+                    user_now = datetime.now(user_tz)
+
+                    preferred_time = user.get('digest_time') or '09:00'
+                    pref_hour, pref_min = map(int, preferred_time.split(':'))
+
+                    # Совпадение с точностью до минуты
+                    if user_now.hour == pref_hour and user_now.minute == pref_min:
+                        logger.info(f"📤 Отправка сводки пользователю {user_id} ({tz_name}, {preferred_time})")
+                        await self.send_digest(context, user_id=user_id)
+                except Exception as e:
+                    logger.warning(f"⚠️ Ошибка при обработке пользователя {user_id}: {e}")
+                    continue
+
         if self.application.job_queue:
-            self.application.job_queue.run_daily(
+            self.application.job_queue.run_repeating(
                 daily_digest_job,
-                time=current_time.time(),
-                days=(0, 1, 2, 3, 4, 5, 6),
-                name="morning_digest"
+                interval=60,   # проверяем каждые 60 секунд
+                first=10,      # первый запуск через 10 секунд после старта
+                name="digest_scheduler"
             )
-            logger.info(f"⏰ Планировщик сводки запущен на {current_time.strftime('%H:%M')}")
+            logger.info("⏰ Планировщик сводки запущен (проверка каждую минуту)")
+        # ---------------------------------------------------
 
         mode, token_info = self._get_operation_mode_info()
         ai_status = "AVAILABLE" if self.ai_manager else "UNAVAILABLE"
-        
+
         logger.info("🤖 Investment Bot starting...")
         print("=" * 60)
         print("🤖 INVESTMENT ADVISOR BOT")
