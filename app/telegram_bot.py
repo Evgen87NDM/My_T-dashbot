@@ -1410,7 +1410,7 @@ class InvestmentTelegramBot:
             MessageHandler(filters.Regex("^⚙️ Настройки$"), self.show_settings)
         )
         self.application.add_handler(
-            MessageHandler(filters.Regex("^💵 Выплаты$"), self.show_dividends)
+            MessageHandler(filters.Regex("^💵 Выплаты$"), self.)
         )
         self.application.add_handler(
             MessageHandler(filters.Regex("^⚡ Анализ ИИ$"), self.analyze_ai_command)
@@ -1450,8 +1450,98 @@ class InvestmentTelegramBot:
         return "ASK_TOKEN"
         
     async def show_dividends(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработчик кнопки 'Дивиденды'"""
-        await update.message.reply_text("⏳ Считаю будущие дивиденды и купоны... (В разработке)")
+        """Обработчик кнопки 'Выплаты' - дивиденды и купоны"""
+        user = update.effective_user
+        user_data = db.get_user(user.id)
+        token = user_data.get('tinkoff_token') if user_data else None
+
+        if not token:
+            await update.message.reply_text("❌ Не подключен API-ключ.\nНажмите ⚙️ Настройки.")
+            return
+
+        await update.message.reply_text("⏳ Собираю информацию о ближайших выплатах...")
+
+        try:
+            from datetime import datetime, timedelta
+            from t_tech.invest import InstrumentType
+
+            with Client(token) as client:
+                accounts_resp = client.users.get_accounts()
+                all_ids = [a.id for a in accounts_resp.accounts if a.status == AccountStatus.ACCOUNT_STATUS_OPEN]
+
+            selection = self._parse_selection(user_data.get('selected_account'))
+            target_ids = all_ids if selection == "all" else [i for i in selection if i in all_ids]
+            if not target_ids:
+                target_ids = all_ids
+
+            # Собираем позиции
+            data = await self._get_portfolio_for_accounts(token, target_ids)
+            if not data:
+                await update.message.reply_text("❌ Не удалось загрузить портфель.")
+                return
+
+            tickers = set()
+            figis = set()
+            for acc in data['accounts']:
+                for pos in acc['positions']:
+                    tickers.add(pos['ticker'])
+                    # Для точного поиска дивидендов нужен FIGI, но мы его не сохраняли в data.
+                    # Упростим задачу: запросим дивиденды по всем акциям счета.
+
+            now = datetime.now()
+            future_limit = now + timedelta(days=30) # Ищем выплаты на месяц вперед
+            dividends_text = ""
+            coupons_text = ""
+            
+            total_div = 0
+            total_cou = 0
+
+            with Client(token) as client:
+                for acc_id in target_ids:
+                    # Получаем дивиденды
+                    try:
+                        divs = client.operations.get_dividends(account_id=acc_id)
+                        for div in divs.dividends:
+                            div_date = div.dividend_net_date if hasattr(div, 'dividend_net_date') else div.payment_date
+                            if now <= div_date.replace(tzinfo=None) <= future_limit:
+                                name = getattr(div, 'ticker', 'Акция')
+                                amount = div.dividend_net.units + div.dividend_net.nano / 1e9
+                                dividends_text += f"• {name}: {amount:,.2f} ₽ (до {div_date.strftime('%d.%m')})\n"
+                                total_div += amount
+                    except Exception as e:
+                        pass # Нет дивидендов или ошибка
+
+                    # Получаем купоны
+                    try:
+                        coups = client.operations.get_coupons(account_id=acc_id)
+                        for coup in coups.events:
+                            coup_date = coup.coupon_date
+                            if now <= coup_date.replace(tzinfo=None) <= future_limit:
+                                name = getattr(coup, 'figi', 'Облигация')[:4]
+                                amount = coup.pay_one_bond.units + coup.pay_one_bond.nano / 1e9
+                                coupons_text += f"• {name}...: {amount:,.2f} ₽ (до {coup_date.strftime('%d.%m')})\n"
+                                total_cou += amount
+                    except Exception as e:
+                        pass
+
+            if not dividends_text and not coupons_text:
+                await update.message.reply_text("📭 В ближайшие 30 дней выплат по вашему портфелю не ожидается.")
+                return
+
+            response = "💵 <b>Ближайшие выплаты (30 дней)</b>\n\n"
+            
+            if dividends_text:
+                response += f"📈 <b>Дивиденды:</b>\n{dividends_text}\n"
+            if coupons_text:
+                response += f"🏛 <b>Купоны:</b>\n{coupons_text}\n"
+                
+            response += f"💰 <b>Итого ожидается: {total_div + total_cou:,.2f} ₽</b>"
+
+            await update.message.reply_text(response, parse_mode="HTML")
+
+        except Exception as e:
+            logger.error(f"Dividends error: {e}")
+            await update.message.reply_text("❌ Ошибка при загрузке данных о выплатах.")
         
     async def ask_token(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.callback_query:
@@ -1788,6 +1878,47 @@ class InvestmentTelegramBot:
         self.application = Application.builder().token(self.token).post_init(self.post_init).build()
         self.setup_handlers()
         
+        # --- ПЛАНИРОВЩИК УТРЕННЕЙ СВОДКИ ---
+        # Мы ставим задачу каждый день в 09:00 (по времени сервера, обычно это UTC или МСК)
+        import datetime as dt
+        import pytz
+        moscow_tz = pytz.timezone('Europe/Moscow')
+        
+        # Для теста давайте поставим время через 2 минуты от текущего момента, 
+        # чтобы вы могли увидеть, как это работает прямо сейчас!
+        current_time = dt.datetime.now(moscow_tz) + dt.timedelta(minutes=2)
+        
+        # (Для реальной работы раскомментируйте строку ниже и закомментируйте строку выше)
+        # current_time = dt.datetime.now(moscow_tz).replace(hour=9, minute=0, second=0, microsecond=0)
+
+        async def daily_digest_job(context: ContextTypes.DEFAULT_TYPE):
+            """Задача для рассылки сводки всем пользователям из БД"""
+            try:
+                # В реальности тут нужно получать список всех пользователей из db
+                # Для теста возьмем вас (ваш ID нужно знать)
+                # ВАЖНО: Замените 123456789 на ваш реальный Telegram ID
+                class FakeJob:
+                    data = {'user_id': 407202902} # <--- ВАШ ID
+                class FakeContext:
+                    job = FakeJob()
+                    bot = context.bot
+                
+                # Вызываем функцию отправки сводки
+                await self.send_digest(FakeContext())
+                logger.info("✅ Утренняя сводка отправлена")
+            except Exception as e:
+                logger.error(f"Digest job error: {e}")
+
+        # Планируем задачу
+        if self.application.job_queue:
+            self.application.job_queue.run_daily(
+                daily_digest_job,
+                time=current_time.time(),
+                days=(0, 1, 2, 3, 4, 5, 6),
+                name="morning_digest"
+            )
+            logger.info(f"⏰ Планировщик сводки запущен на {current_time.strftime('%H:%M')}")
+
         mode, token_info = self._get_operation_mode_info()
         ai_status = "AVAILABLE" if self.ai_manager else "UNAVAILABLE"
         
@@ -1802,16 +1933,3 @@ class InvestmentTelegramBot:
 
         # Простой запуск
         self.application.run_polling(drop_pending_updates=True)
-
-if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    
-    try:
-        bot = InvestmentTelegramBot()
-        bot.run()
-    except Exception as e:
-        print(f"❌ Bot failed: {e}")
-        logging.error(f"Bot startup failed: {e}")
