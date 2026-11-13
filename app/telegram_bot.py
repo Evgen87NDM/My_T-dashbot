@@ -178,6 +178,7 @@ class InvestmentTelegramBot:
         return "ASK_TOKEN"
         
     async def portfolio_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Кнопка 'Портфель' — выбор счетов и показ сводки"""
         user = update.effective_user
         user_data = db.get_user(user.id)
         token = user_data.get('tinkoff_token') if user_data else None
@@ -186,7 +187,7 @@ class InvestmentTelegramBot:
             await update.message.reply_text("❌ Не подключен API-ключ.\nНажмите ⚙️ Настройки.")
             return
 
-        # --- ПРОВЕРКА БРОКЕРОВ ---
+        # Проверка брокеров
         brokers = user_data.get('selected_brokers', '') if user_data else ''
         if not brokers or 'tinkoff' not in brokers:
             await update.message.reply_text(
@@ -194,50 +195,57 @@ class InvestmentTelegramBot:
                 "Зайдите в 🏦 Брокеры и добавьте Т-Инвестиции.",
             )
             return
-        # --------------------------
 
         await update.message.reply_text("📋 Загружаю список ваших счетов...")
-        
+
         try:
             with Client(token) as client:
-                accounts_resp = client.users.get_accounts()
-                all_ids = [a.id for a in accounts_resp.accounts if a.status == AccountStatus.ACCOUNT_STATUS_OPEN]
+                accounts_response = client.users.get_accounts()
+                active_accounts = []
 
-            selection = self._parse_selection(user_data.get('selected_account'))
-            target_ids = all_ids if selection == "all" else [i for i in selection if i in all_ids]
-            if not target_ids:
-                target_ids = all_ids
+                for account in accounts_response.accounts:
+                    if account.status != AccountStatus.ACCOUNT_STATUS_OPEN:
+                        continue
+                    try:
+                        positions = client.operations.get_positions(account_id=account.id)
+                        has_assets = bool(positions.securities) or any(
+                            m.currency == 'rub' and (m.units > 0 or m.nano > 0) for m in (positions.money or [])
+                        )
+                        if not has_assets:
+                            continue
+                    except:
+                        continue
+                    active_accounts.append((account.id, getattr(account, 'name', 'Счет')))
 
-            data = await self._get_portfolio_for_accounts(token, target_ids)
-            if not data or not data['accounts']:
-                await update.message.reply_text("❌ Не удалось загрузить портфели.")
-                return
+                if not active_accounts:
+                    await update.message.reply_text("❌ У вас нет счетов с активами.")
+                    return
 
-            all_positions = []
-            for acc in data['accounts']:
-                for pos in acc['positions']:
-                    all_positions.append(pos)
-            all_positions.sort(key=lambda p: p['value'], reverse=True)
+                current = self._parse_selection(user_data.get('selected_account'))
+                if current == "all":
+                    current = [acc_id for acc_id, _ in active_accounts]
 
-            positions_text = ""
-            for pos in all_positions:
-                emoji = "🟢" if pos['real_yield'] >= 0 else "🔴"
-                positions_text += f"{emoji} <b>{pos['name']}</b>: {pos['quantity']:.4g} шт. | {pos['value']:,.0f} ₽ ({pos['yield_percentage']:+.1f}%)\n"
+                context.user_data['temp_active_accounts'] = active_accounts
+                context.user_data['temp_acc_selection'] = current
+                context.user_data['portfolio_flow'] = True  # флаг, что пришли из Портфеля
 
-            acc_names = ", ".join(acc['account_name'] for acc in data['accounts'])
+                # Рисуем меню выбора счетов
+                keyboard = []
+                for acc_id, acc_name in active_accounts:
+                    icon = "☑" if acc_id in current else "☐"
+                    keyboard.append([InlineKeyboardButton(f"{icon} {acc_name}", callback_data=f"toggle_acc_{acc_id}")])
+                keyboard.append([InlineKeyboardButton("💾 Сохранить и открыть", callback_data="save_accounts")])
+                keyboard.append([InlineKeyboardButton("⬅️ Отмена", callback_data="close_settings")])
 
-            response = (
-                f"📈 <b>Ваш портфель</b>\n\n"
-                f"🏦 Счета ({len(data['accounts'])}): {acc_names}\n"
-                f"💰 Стоимость: <b>{data['total_portfolio_value']:,.2f} ₽</b>\n"
-                f"📊 Доходность: {data['total_real_yield']:+,.2f} ₽ ({data['total_yield_percentage']:+.2f}%)\n\n"
-                f"{positions_text}"
-            )
-            await update.message.reply_text(response, parse_mode="HTML")
-
+                await update.message.reply_text(
+                    "🏦 <b>Выберите счета для портфеля</b>\n\n"
+                    "Можно отметить несколько (например, акции на брокерском, облигации на ИИС):",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode="HTML"
+                )
         except Exception as e:
-            logger.error(f"Portfolio error: {e}")
-            await update.message.reply_text("❌ Ошибка при загрузке портфеля.")
+            logger.error(f"Portfolio select error: {e}")
+            await update.message.reply_text("❌ Ошибка загрузки счетов.")
 
     async def accounts_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /accounts command with account selection from DB"""
@@ -1742,7 +1750,8 @@ class InvestmentTelegramBot:
                         positions_list.append({
                             'name': name, 'ticker': ticker, 'quantity': qty,
                             'value': value, 'invested_value': invested,
-                            'real_yield': pnl, 'yield_percentage': pnl_pct
+                            'real_yield': pnl, 'yield_percentage': pnl_pct,
+                            'instrument_type': getattr(pos, 'instrument_type', 'other')
                         })
                         acc_value += value
                         acc_invested += invested
@@ -1816,7 +1825,7 @@ class InvestmentTelegramBot:
         await self._render_accounts_menu(query, context)
 
     async def save_accounts_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Сохраняет выбор в БД"""
+        """Сохраняет выбор и показывает сводку (если пришли из Портфеля)"""
         query = update.callback_query
         selected = context.user_data.get('temp_acc_selection', [])
         if not selected:
@@ -1829,12 +1838,16 @@ class InvestmentTelegramBot:
         context.user_data.pop('temp_active_accounts', None)
         context.user_data.pop('temp_acc_selection', None)
 
-        await query.edit_message_text(
-            f"✅ <b>Выбрано счетов: {len(selected)}</b>\n\n"
-            "Теперь я буду анализировать данные по всем выбранным счетам вместе.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⚙️ В настройки", callback_data="back_to_settings")]]),
-            parse_mode="HTML"
-        )
+        if context.user_data.pop('portfolio_flow', False):
+            # Из Портфеля — показываем сводку
+            await self._show_portfolio_summary(query, context)
+        else:
+            # Из Настроек — просто подтверждение
+            await query.edit_message_text(
+                f"✅ <b>Выбрано счетов: {len(selected)}</b>",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⚙️ В настройки", callback_data="back_to_settings")]]),
+                parse_mode="HTML"
+            )
 
     async def choose_account_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка кнопки выбора счета в настройках (мультивыбор)"""
@@ -1972,6 +1985,151 @@ class InvestmentTelegramBot:
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Закрыть", callback_data="close_settings")]]),
                 parse_mode="HTML"
             )
+            
+    async def _show_portfolio_summary(self, query, context):
+        """Внутренняя функция: строит и показывает сводку"""
+        user_data = db.get_user(query.from_user.id)
+        token = user_data.get('tinkoff_token')
+        if not token:
+            await query.edit_message_text("❌ Не подключен API-ключ.")
+            return
+
+        try:
+            with Client(token) as client:
+                accounts_resp = client.users.get_accounts()
+                all_ids = [a.id for a in accounts_resp.accounts if a.status == AccountStatus.ACCOUNT_STATUS_OPEN]
+
+            selection = self._parse_selection(user_data.get('selected_account'))
+            target_ids = all_ids if selection == "all" else [i for i in selection if i in all_ids]
+            if not target_ids:
+                target_ids = all_ids
+
+            data = await self._get_portfolio_for_accounts(token, target_ids)
+            if not data or not data['accounts']:
+                await query.edit_message_text("❌ Не удалось загрузить портфель.")
+                return
+
+            all_positions = []
+            for acc in data['accounts']:
+                all_positions.extend(acc['positions'])
+
+            sorted_pos = sorted(all_positions, key=lambda p: p['yield_percentage'], reverse=True)
+            leaders = [p for p in sorted_pos[:3] if p['yield_percentage'] > 0]
+            losers = [p for p in sorted_pos[-3:][::-1] if p['yield_percentage'] < 0]
+
+            emoji_total = "🟢" if data['total_real_yield'] >= 0 else "🔴"
+            acc_names = ", ".join(acc['account_name'] for acc in data['accounts'])
+
+            text = f"📊 <b>Ваш портфель</b>\n\n"
+            text += f"🏦 Счета ({len(data['accounts'])}): {acc_names}\n"
+            text += f"💰 Стоимость: <b>{data['total_portfolio_value']:,.2f} ₽</b>\n"
+            text += f"{emoji_total} Доходность: {data['total_real_yield']:+,.2f} ₽ ({data['total_yield_percentage']:+.2f}%)\n"
+            text += f"📁 Позиций: {len(all_positions)}\n\n"
+
+            if leaders:
+                text += "🏆 <b>Лучшие результаты:</b>\n"
+                for p in leaders:
+                    text += f"🟢 {p['name']}: {p['yield_percentage']:+.1f}%\n"
+                text += "\n"
+
+            if losers:
+                text += "📉 <b>Требуют внимания:</b>\n"
+                for p in losers:
+                    text += f"🔴 {p['name']}: {p['yield_percentage']:+.1f}%\n"
+                text += "\n"
+
+            keyboard = [[InlineKeyboardButton("📋 Подробнее", callback_data="portfolio_details")]]
+            await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
+        except Exception as e:
+            logger.error(f"Summary error: {e}")
+            await query.edit_message_text("❌ Ошибка построения сводки.")
+
+    async def back_to_portfolio_summary(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Возврат к сводке"""
+        query = update.callback_query
+        await query.answer()
+        await self._show_portfolio_summary(query, context)
+
+    async def show_portfolio_details(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Детальный список: сгруппирован по типам, по алфавиту, с долями"""
+        query = update.callback_query
+        await query.answer()
+
+        user_data = db.get_user(query.from_user.id)
+        token = user_data.get('tinkoff_token')
+        if not token:
+            await query.edit_message_text("❌ Не подключен API-ключ.")
+            return
+
+        try:
+            with Client(token) as client:
+                accounts_resp = client.users.get_accounts()
+                all_ids = [a.id for a in accounts_resp.accounts if a.status == AccountStatus.ACCOUNT_STATUS_OPEN]
+
+            selection = self._parse_selection(user_data.get('selected_account'))
+            target_ids = all_ids if selection == "all" else [i for i in selection if i in all_ids]
+            if not target_ids:
+                target_ids = all_ids
+
+            data = await self._get_portfolio_for_accounts(token, target_ids)
+            if not data:
+                await query.edit_message_text("❌ Не удалось загрузить портфель.")
+                return
+
+            total_value = data['total_portfolio_value']
+
+            groups = {'share': [], 'bond': [], 'etf': [], 'other': []}
+            cash_total = 0
+            for acc in data['accounts']:
+                for pos in acc['positions']:
+                    itype = pos.get('instrument_type', 'other')
+                    if itype not in groups:
+                        itype = 'other'
+                    groups[itype].append(pos)
+                cash_total += acc['available_cash']
+
+            text = "📋 <b>Подробный состав портфеля</b>\n\n"
+
+            group_titles = {
+                'share': '📈 <b>Акции</b>',
+                'bond': '🏛 <b>Облигации</b>',
+                'etf': '📊 <b>Фонды и ETF</b>',
+                'other': '💼 <b>Прочее</b>',
+            }
+
+            for key in ['share', 'bond', 'etf', 'other']:
+                positions = groups[key]
+                if not positions:
+                    continue
+                positions.sort(key=lambda p: p['name'])
+                text += f"{group_titles[key]} ({len(positions)}):\n"
+                for i, pos in enumerate(positions, 1):
+                    share_pct = (pos['value'] / total_value * 100) if total_value > 0 else 0
+                    emoji = "🟢" if pos['real_yield'] >= 0 else "🔴"
+                    text += f"{i}. <b>{pos['name']}</b> ({pos['ticker']})\n"
+                    text += f"   {pos['quantity']:.4g} шт. | {pos['value']:,.0f} ₽ ({share_pct:.1f}%)\n"
+                    text += f"   {emoji} {pos['yield_percentage']:+.1f}%\n"
+                text += "\n━━━━━━━━━━━━━━━━\n\n"
+
+            if cash_total > 0:
+                cash_pct = (cash_total / total_value * 100) if total_value > 0 else 0
+                text += f"💰 <b>Денежные средства</b>\n"
+                text += f"   {cash_total:,.2f} ₽ ({cash_pct:.1f}%)\n"
+
+            keyboard = [[InlineKeyboardButton("⬅️ Назад к сводке", callback_data="portfolio_summary")]]
+
+            if len(text) > 4000:
+                parts = [text[i:i+4000] for i in range(0, len(text), 4000)]
+                for i, part in enumerate(parts):
+                    if i == 0:
+                        await query.edit_message_text(part, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
+                    else:
+                        await query.message.reply_text(part, parse_mode="HTML")
+            else:
+                await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
+        except Exception as e:
+            logger.error(f"Details error: {e}")
+            await query.edit_message_text("❌ Ошибка построения деталей.")
 
     def run(self):
         """Run the bot"""
