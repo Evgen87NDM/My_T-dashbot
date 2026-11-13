@@ -1410,7 +1410,7 @@ class InvestmentTelegramBot:
             MessageHandler(filters.Regex("^⚙️ Настройки$"), self.show_settings)
         )
         self.application.add_handler(
-            MessageHandler(filters.Regex("^💵 Выплаты$"), self.)
+            MessageHandler(filters.Regex("^💵 Выплаты$"), self.show_dividends)
         )
         self.application.add_handler(
             MessageHandler(filters.Regex("^⚡ Анализ ИИ$"), self.analyze_ai_command)
