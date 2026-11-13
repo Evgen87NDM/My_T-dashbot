@@ -24,6 +24,24 @@ class Database:
         """)
         self.conn.commit()
         logger.info("✅ База данных инициализирована")
+        
+    def get_all_users(self):
+        """Возвращает список всех пользователей из базы"""
+        self.cursor.execute("SELECT * FROM users")
+        rows = self.cursor.fetchall()
+        users = []
+        for row in rows:
+            users.append({
+                'telegram_id': row[0],
+                'user_name': row[1],
+                'tinkoff_token': row[2],
+                'selected_account': row[3],
+                'selected_brokers': row[4],
+                'timezone': row[5],
+                'digest_time': row[6],
+                'digest_enabled': row[7]
+            })
+        return users
 
     def get_user(self, telegram_id: int):
         self.cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
