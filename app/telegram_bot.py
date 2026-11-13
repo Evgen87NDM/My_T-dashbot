@@ -186,8 +186,18 @@ class InvestmentTelegramBot:
             await update.message.reply_text("❌ Не подключен API-ключ.\nНажмите ⚙️ Настройки.")
             return
 
-        await update.message.reply_text("💼 Загружаю данные ваших портфелей...")
+        # --- ПРОВЕРКА БРОКЕРОВ ---
+        brokers = user_data.get('selected_brokers', '') if user_data else ''
+        if not brokers or 'tinkoff' not in brokers:
+            await update.message.reply_text(
+                "⚠️ У вас не выбран ни один брокер.\n\n"
+                "Зайдите в 🏦 Брокеры и добавьте Т-Инвестиции.",
+            )
+            return
+        # --------------------------
 
+        await update.message.reply_text("📋 Загружаю список ваших счетов...")
+        
         try:
             with Client(token) as client:
                 accounts_resp = client.users.get_accounts()
@@ -1399,9 +1409,12 @@ class InvestmentTelegramBot:
         )
         self.application.add_handler(conv_handler)
         
-        # --- Обработчики для кнопок главного меню ---
+                # --- Обработчики для кнопок главного меню ---
         self.application.add_handler(
             MessageHandler(filters.Regex("^💼 Портфель$"), self.portfolio_command)
+        )
+        self.application.add_handler(
+            MessageHandler(filters.Regex("^🏦 Брокеры$"), self.brokers_command)
         )
         self.application.add_handler(
             MessageHandler(filters.Regex("^📰 Новости$"), self.manual_digest)
@@ -1416,21 +1429,27 @@ class InvestmentTelegramBot:
             MessageHandler(filters.Regex("^⚡ Анализ ИИ$"), self.analyze_ai_command)
         )
         
-        # --- Обработчики для настроек (инлайн-кнопки) ---
+        # Инлайн-кнопки
         self.application.add_handler(CallbackQueryHandler(self.show_timezone_menu, pattern="^set_timezone$"))
         self.application.add_handler(CallbackQueryHandler(self.show_digest_time_menu, pattern="^set_digest_time$"))
-        
         self.application.add_handler(CallbackQueryHandler(self.choose_account_start, pattern="^choose_account$"))
         self.application.add_handler(CallbackQueryHandler(self.back_to_settings, pattern="^back_to_settings$"))
         self.application.add_handler(CallbackQueryHandler(self.close_settings, pattern="^close_settings$"))
         self.application.add_handler(CallbackQueryHandler(self.save_timezone, pattern="^tz_"))
         self.application.add_handler(CallbackQueryHandler(self.save_digest_time, pattern="^dt_"))
-        # --- НОВЫЕ обработчики для мультивыбора ---
+        
+        # Мультивыбор счетов
         self.application.add_handler(CallbackQueryHandler(self.toggle_account_selection, pattern="^toggle_acc_"))
         self.application.add_handler(CallbackQueryHandler(self.save_accounts_selection, pattern="^save_accounts$"))
-        # -------------------------------------------
         
-        self.application.add_handler(CallbackQueryHandler(self.handle_account_selection, pattern="^select_acc_"))
+        # --- Мультивыбор брокеров ---
+        self.application.add_handler(CallbackQueryHandler(self.toggle_broker_selection, pattern="^toggle_broker_"))
+        self.application.add_handler(CallbackQueryHandler(self.save_brokers_selection, pattern="^save_brokers$"))
+        
+        # Сводка и детали портфеля
+        self.application.add_handler(CallbackQueryHandler(self.show_portfolio_details, pattern="^portfolio_details$"))
+        self.application.add_handler(CallbackQueryHandler(self.back_to_portfolio_summary, pattern="^portfolio_summary$"))
+        
         # Этот обработчик должен быть САМЫМ ПОСЛЕДНИМ (он ловит весь остальной текст)
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         
@@ -1871,6 +1890,88 @@ class InvestmentTelegramBot:
         except Exception as e:
             logger.error(f"Accounts error: {e}")
             await query.edit_message_text("❌ Ошибка загрузки счетов. Проверьте API-ключ.")
+
+    async def brokers_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Кнопка 'Брокеры' — показывает список брокеров"""
+        user_id = update.effective_user.id
+        user_data = db.get_user(user_id)
+        current = (user_data.get('selected_brokers', 'tinkoff') if user_data else 'tinkoff') or ''
+        selected = [b for b in current.split(',') if b]
+
+        available = [
+            ('tinkoff', '🟡 Т-Инвестиции'),
+            # Сюда в будущем добавляем других брокеров
+        ]
+
+        context.user_data['temp_brokers_selection'] = selected
+
+        keyboard = []
+        for bid, bname in available:
+            icon = "☑" if bid in selected else "☐"
+            keyboard.append([InlineKeyboardButton(f"{icon} {bname}", callback_data=f"toggle_broker_{bid}")])
+        keyboard.append([InlineKeyboardButton("💾 Сохранить", callback_data="save_brokers")])
+        keyboard.append([InlineKeyboardButton("⬅️ Закрыть", callback_data="close_settings")])
+
+        await update.message.reply_text(
+            "🏦 <b>Ваши брокеры</b>\n\n"
+            "Отметьте брокеров, счета которых вы хотите видеть в портфеле.\n"
+            "Сейчас доступен только Т-Инвестиции, но скоро появятся другие.",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML"
+        )
+
+    async def toggle_broker_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Переключает чекбокс брокера"""
+        query = update.callback_query
+        await query.answer()
+        bid = query.data.replace("toggle_broker_", "")
+        selected = context.user_data.get('temp_brokers_selection', [])
+        if bid in selected:
+            selected.remove(bid)
+        else:
+            selected.append(bid)
+        context.user_data['temp_brokers_selection'] = selected
+
+        available = [
+            ('tinkoff', '🟡 Т-Инвестиции'),
+        ]
+        keyboard = []
+        for b_id, b_name in available:
+            icon = "☑" if b_id in selected else "☐"
+            keyboard.append([InlineKeyboardButton(f"{icon} {b_name}", callback_data=f"toggle_broker_{b_id}")])
+        keyboard.append([InlineKeyboardButton("💾 Сохранить", callback_data="save_brokers")])
+        keyboard.append([InlineKeyboardButton("⬅️ Закрыть", callback_data="close_settings")])
+
+        await query.edit_message_text(
+            "🏦 <b>Ваши брокеры</b>\n\n"
+            "Отметьте брокеров, счета которых вы хотите видеть в портфеле.",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML"
+        )
+
+    async def save_brokers_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Сохраняет выбор брокеров"""
+        query = update.callback_query
+        selected = context.user_data.get('temp_brokers_selection', [])
+        await query.answer()
+
+        db.save_user_data(query.from_user.id, selected_brokers=",".join(selected))
+        context.user_data.pop('temp_brokers_selection', None)
+
+        if not selected:
+            await query.edit_message_text(
+                "⚠️ <b>Вы не выбрали ни одного брокера.</b>\n\n"
+                "Пока брокер не добавлен, портфель будет недоступен.\n"
+                "Вернитесь в 🏦 Брокеры, чтобы включить Т-Инвестиции.",
+                parse_mode="HTML"
+            )
+        else:
+            await query.edit_message_text(
+                f"✅ <b>Выбрано брокеров: {len(selected)}</b>\n\n"
+                "Портфель будет собираться по счетам выбранных брокеров.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Закрыть", callback_data="close_settings")]]),
+                parse_mode="HTML"
+            )
 
     def run(self):
         """Run the bot"""
